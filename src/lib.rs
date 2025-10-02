@@ -3,12 +3,10 @@ use hypervector::{Accumulator, HyperVector};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use std::process;
-use std::path::PathBuf;
-use mnist;
-use mnist::error::MnistError;
 
-pub const N: usize = 157;
+pub const N: usize = 79;
+//pub const N: usize = 157;
+//pub const N: usize = 314;
 
 pub struct ItemMemory {
     pub positions: [BinaryHDV<N>; 784],
@@ -49,9 +47,9 @@ impl ItemMemory {
 pub fn encode_image(pixels: &[u8], item_memory: &ItemMemory) -> BinaryHDV<N> {
     assert!(pixels.len() == 784);
     let mut accumulator = BinaryAccumulator::new();
-    //let threshold = 10;
+    let threshold = 10;
     //let threshold = 30;
-    let threshold = 0;
+    //let threshold = 0;
 
     for (i, &intensity) in pixels.iter().enumerate() {
         if intensity > threshold {
