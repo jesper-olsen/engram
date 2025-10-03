@@ -47,6 +47,10 @@ impl<const N: usize> ItemMemory<N> {
 }
 
 pub fn encode_image<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) -> BinaryHDV<N> {
+    encode_image_bag(pixels, item_memory)
+}
+
+pub fn encode_image_bag<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) -> BinaryHDV<N> {
     assert!(pixels.len() == 784);
     let mut accumulator = BinaryAccumulator::new();
     let threshold = 10;
@@ -59,63 +63,6 @@ pub fn encode_image<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) 
             let intensity_hdv = &item_memory.intensities[intensity as usize];
             let pixel_hdv = pos_hdv.bind(intensity_hdv);
             accumulator.add(&pixel_hdv, 1.0);
-        }
-    }
-
-    accumulator.finalize()
-}
-
-pub fn encode_image_2d<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) -> BinaryHDV<N> {
-    assert!(pixels.len() == 784);
-    let mut accumulator = BinaryAccumulator::new();
-    let threshold = 10;
-    const WIDTH: usize = 28;
-    const HEIGHT: usize = 28;
-
-    // Pre-calculate individual pixel HDVs to avoid redundant work
-    let pixel_hdvs: Vec<BinaryHDV<N>> = pixels
-        .iter()
-        .enumerate()
-        .map(|(i, &intensity)| {
-            if intensity > threshold {
-                let pos_hdv = &item_memory.positions[i];
-                let intensity_hdv = &item_memory.intensities[intensity as usize];
-                pos_hdv.bind(intensity_hdv)
-            } else {
-                BinaryHDV::zero()
-            }
-        })
-        .collect();
-
-    // Iterate through each pixel to form the top-left corner of our N-grams
-    for r in 0..(HEIGHT - 1) {
-        // -1 to avoid vertical out-of-bounds
-        for c in 0..(WIDTH - 1) {
-            // -1 to avoid horizontal out-of-bounds
-            let i = r * WIDTH + c;
-
-            // --- Horizontal Trigram ---
-            // We can simplify and use 2-grams (bigrams) for efficiency and power
-            let h_v0 = &pixel_hdvs[i];
-            let h_v1 = &pixel_hdvs[i + 1]; // Pixel to the right
-
-            // Bind the pixel with a permuted version of its right neighbor
-            // permute(1) can represent "right"
-            let horizontal_bigram = h_v0.bind(&h_v1.permute(1));
-            if !horizontal_bigram.is_zero() {
-                accumulator.add(&horizontal_bigram, 1.0);
-            }
-
-            // --- Vertical Trigram ---
-            let v_v0 = &pixel_hdvs[i];
-            let v_v1 = &pixel_hdvs[i + WIDTH]; // Pixel below
-
-            // Bind the pixel with a differently permuted version of its bottom neighbor
-            // permute(2) can represent "down"
-            let vertical_bigram = v_v0.bind(&v_v1.permute(2));
-            if !vertical_bigram.is_zero() {
-                accumulator.add(&vertical_bigram, 1.0);
-            }
         }
     }
 

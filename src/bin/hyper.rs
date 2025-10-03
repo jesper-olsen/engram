@@ -9,7 +9,7 @@ fn main() -> Result<(), MnistError> {
     let data = Mnist::load("MNIST")?;
     println!("Read {} labels", data.train_labels.len());
 
-    const N: usize = 160;
+    const N: usize = 100;
     let mut accumulators: [BinaryAccumulator<N>; 10] =
         core::array::from_fn(|_| BinaryAccumulator::<N>::new());
     for (i, im) in data.train_images.iter().enumerate() {
