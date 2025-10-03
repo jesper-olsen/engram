@@ -1,4 +1,4 @@
-use engram::{ItemMemory, N, encode_image, predict};
+use engram::{ItemMemory, encode_image, predict};
 use hypervector::Accumulator;
 use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use mnist::error::MnistError;
@@ -6,18 +6,10 @@ use mnist::{self, Mnist};
 
 fn main() -> Result<(), MnistError> {
     let imem = ItemMemory::new();
-    for i in 0..255 {
-        let dist = imem.intensities[0].hamming_distance(&imem.intensities[i]);
-        println!(
-            "ham {i}->{}: {}, 0->{i}: {dist}",
-            i + 1,
-            imem.intensities[i].hamming_distance(&imem.intensities[i + 1])
-        );
-    }
-
     let data = Mnist::load("MNIST")?;
     println!("Read {} labels", data.train_labels.len());
 
+    const N: usize = 160;
     let mut accumulators: [BinaryAccumulator<N>; 10] =
         core::array::from_fn(|_| BinaryAccumulator::<N>::new());
     for (i, im) in data.train_images.iter().enumerate() {

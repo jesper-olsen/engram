@@ -4,16 +4,18 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 
-pub const N: usize = 79;
-//pub const N: usize = 157;
-//pub const N: usize = 314;
-
-pub struct ItemMemory {
+pub struct ItemMemory<const N: usize> {
     pub positions: [BinaryHDV<N>; 784],
     pub intensities: Vec<BinaryHDV<N>>,
 }
 
-impl ItemMemory {
+impl<const N: usize> Default for ItemMemory<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> ItemMemory<N> {
     pub fn new() -> Self {
         let seed = 42;
         let mut rng = StdRng::seed_from_u64(seed);
@@ -24,14 +26,14 @@ impl ItemMemory {
         let mut intensities = Vec::with_capacity(256);
         intensities.push(intensity_min);
 
-        const DIM: usize = BinaryHDV::<N>::DIM;
-        let mut permutations: [usize; DIM] = core::array::from_fn(|i| i);
+        let dim: usize = BinaryHDV::<N>::DIM;
+        let mut permutations: Vec<usize> = (0..dim).collect();
         permutations.shuffle(&mut rng);
 
         for i in 1..255 {
-            let bit = (i as f64 / 255.0) * DIM as f64;
+            let bit = (i as f64 / 255.0) * dim as f64;
             let bit = bit as usize;
-            let bit = bit.min(DIM);
+            let bit = bit.min(dim);
             let bi = BinaryHDV::<N>::blend(&intensity_min, &intensity_max, &permutations[..bit]);
             //let bi = BinaryHDV::<N>::flip(&intensities[i - 1], nflip, &mut rng);
             intensities.push(bi);
@@ -44,7 +46,7 @@ impl ItemMemory {
     }
 }
 
-pub fn encode_image(pixels: &[u8], item_memory: &ItemMemory) -> BinaryHDV<N> {
+pub fn encode_image<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) -> BinaryHDV<N> {
     assert!(pixels.len() == 784);
     let mut accumulator = BinaryAccumulator::new();
     let threshold = 10;
@@ -55,7 +57,7 @@ pub fn encode_image(pixels: &[u8], item_memory: &ItemMemory) -> BinaryHDV<N> {
         if intensity > threshold {
             let pos_hdv = &item_memory.positions[i];
             let intensity_hdv = &item_memory.intensities[intensity as usize];
-            let pixel_hdv = pos_hdv.bind(&intensity_hdv);
+            let pixel_hdv = pos_hdv.bind(intensity_hdv);
             accumulator.add(&pixel_hdv, 1.0);
         }
     }
@@ -63,7 +65,7 @@ pub fn encode_image(pixels: &[u8], item_memory: &ItemMemory) -> BinaryHDV<N> {
     accumulator.finalize()
 }
 
-pub fn encode_image_2d(pixels: &[u8], item_memory: &ItemMemory) -> BinaryHDV<N> {
+pub fn encode_image_2d<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) -> BinaryHDV<N> {
     assert!(pixels.len() == 784);
     let mut accumulator = BinaryAccumulator::new();
     let threshold = 10;
@@ -120,7 +122,7 @@ pub fn encode_image_2d(pixels: &[u8], item_memory: &ItemMemory) -> BinaryHDV<N> 
     accumulator.finalize()
 }
 
-pub fn predict(img_hdv: &BinaryHDV<N>, models: &[BinaryHDV<N>]) -> u8 {
+pub fn predict<const N: usize>(img_hdv: &BinaryHDV<N>, models: &[BinaryHDV<N>]) -> u8 {
     let mut min_dist = usize::MAX;
     let mut best_model = 0;
     for j in 0..10 {
