@@ -5,7 +5,7 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 
 pub struct ItemMemory<const N: usize> {
-    pub positions: [BinaryHDV<N>; 784],
+    pub positions: [BinaryHDV<N>; 28 * 28],
     pub intensities: Vec<BinaryHDV<N>>,
 }
 
@@ -61,7 +61,7 @@ pub fn encode_image_bag<const N: usize>(
     //let threshold = 0;
 
     for (i, &intensity) in pixels.iter().enumerate() {
-        if intensity > threshold {
+        if intensity >= threshold {
             let pos_hdv = &item_memory.positions[i];
             let intensity_hdv = &item_memory.intensities[intensity as usize];
             let pixel_hdv = pos_hdv.bind(intensity_hdv);
