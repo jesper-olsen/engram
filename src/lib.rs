@@ -50,7 +50,10 @@ pub fn encode_image<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) 
     encode_image_bag(pixels, item_memory)
 }
 
-pub fn encode_image_bag<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) -> BinaryHDV<N> {
+pub fn encode_image_bag<const N: usize>(
+    pixels: &[u8],
+    item_memory: &ItemMemory<N>,
+) -> BinaryHDV<N> {
     assert!(pixels.len() == 784);
     let mut accumulator = BinaryAccumulator::new();
     let threshold = 10;
