@@ -5,19 +5,21 @@ Modelling MNIST with hypervectors and Hopfield networks.
 Bag-of-pixels hypervector (6400 dimensions) encoded images:
 
 ```text
-% cargo run --bin hyper --release
-Read 60000 labels
-Epoch:   1
-Epoch:   2 Training Accuracy: 48329/60000 = 80.55%
-Epoch:   3 Training Accuracy: 50517/60000 = 84.19%
-Epoch:   4 Training Accuracy: 51743/60000 = 86.24%
-Epoch:   5 Training Accuracy: 52277/60000 = 87.13%
-Epoch:   6 Training Accuracy: 52505/60000 = 87.51%
-Epoch:   7 Training Accuracy: 52671/60000 = 87.78%
-Epoch:   8 Training Accuracy: 52794/60000 = 87.99%
-Epoch:   9 Training Accuracy: 52930/60000 = 88.22%
-Epoch:  10 Training Accuracy: 53005/60000 = 88.34%
-Test Accuracy 8862/10000 = 88.62%
+Read 60000 training labels
+Encoding training images...
+Encoding test images...
+Epoch:   1 (Bundling)
+Epoch:   2 Training Accuracy: 48357/60000 = 80.59%
+Epoch:   3 Training Accuracy: 50740/60000 = 84.57%
+Epoch:   4 Training Accuracy: 51413/60000 = 85.69%
+Epoch:   5 Training Accuracy: 51961/60000 = 86.60%
+Epoch:   6 Training Accuracy: 52183/60000 = 86.97%
+Epoch:   7 Training Accuracy: 52485/60000 = 87.47%
+Epoch:   8 Training Accuracy: 52708/60000 = 87.85%
+Epoch:   9 Training Accuracy: 52885/60000 = 88.14%
+Epoch:  10 Training Accuracy: 53010/60000 = 88.35%
+Test Accuracy 8842/10000 = 88.42%
+14.35s user 0.23s system 84% cpu 17.198 total
 ```
 
 Bag-of-pixels hypervector stored in a Hopfield network 
