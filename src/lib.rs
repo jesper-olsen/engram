@@ -61,22 +61,6 @@ pub fn encode_image<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) 
     //encode_image_features(pixels, item_memory)
 }
 
-pub fn encode_image2<const N: usize, const M: usize>(
-    pixels: &[u8],
-    item_memory: &ItemMemory<N>,
-) -> BinaryHDV<M> {
-    assert!(M == 3 * N);
-    let h1 = encode_image_bag(pixels, item_memory);
-    let h2 = encode_image_features(pixels, item_memory, true);
-    let h3 = encode_image_features(pixels, item_memory, false);
-    let mut data = [0usize; M];
-
-    data[0..N].copy_from_slice(&h1.data);
-    data[N..2 * N].copy_from_slice(&h2.data);
-    data[2 * N..M].copy_from_slice(&h3.data);
-    BinaryHDV::<M> { data }
-}
-
 pub fn encode_image_bag<const N: usize>(
     pixels: &[u8],
     item_memory: &ItemMemory<N>,
@@ -97,6 +81,62 @@ pub fn encode_image_bag<const N: usize>(
     }
 
     accumulator.finalize()
+}
+
+pub struct MultiChannelHDV<const N: usize, const M: usize> {
+    pub hdvs: [BinaryHDV<N>; M],
+}
+
+impl<const N: usize, const M: usize> MultiChannelHDV<N, M> {
+    pub fn predict(&self, models: &[MultiChannelHDV<N, M>], weights: &[usize; M]) -> u8 {
+        let mut min_dist = usize::MAX;
+        let mut best_model = 0;
+        for j in 0..10 {
+            let mut dist = 0;
+            for i in 0..M {
+                dist += self.hdvs[i].hamming_distance(&models[j].hdvs[i]) * weights[i];
+            }
+            if dist < min_dist {
+                min_dist = dist;
+                best_model = j;
+            }
+        }
+        best_model as u8
+    }
+}
+
+pub struct MultiChannelAccumulator<const N: usize, const M: usize> {
+    accs: [BinaryAccumulator<N>; M],
+}
+
+impl<const N: usize, const M: usize> MultiChannelAccumulator<N, M> {
+    pub fn new() -> MultiChannelAccumulator<N, M> {
+        MultiChannelAccumulator {
+            accs: core::array::from_fn(|_| BinaryAccumulator::<N>::new()),
+        }
+    }
+
+    pub fn add(&mut self, mhdv: &MultiChannelHDV<N, M>, weight: f64) {
+        for i in 0..M {
+            self.accs[i].add(&mhdv.hdvs[i], weight)
+        }
+    }
+
+    pub fn finalize(&self) -> MultiChannelHDV<N, M> {
+        MultiChannelHDV::<N, M> {
+            hdvs: core::array::from_fn(|i| self.accs[i].finalize()),
+        }
+    }
+}
+
+pub fn encode_image3<const N: usize>(
+    pixels: &[u8],
+    item_memory: &ItemMemory<N>,
+) -> MultiChannelHDV<N, 3> {
+    let h1 = encode_image_bag(pixels, item_memory);
+    let h2 = encode_image_features(pixels, item_memory, true);
+    let h3 = encode_image_features(pixels, item_memory, false);
+    MultiChannelHDV::<N, 3> { hdvs: [h1, h2, h3] }
 }
 
 pub fn encode_image_features<const N: usize>(
