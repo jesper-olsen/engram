@@ -12,7 +12,7 @@ fn main() -> Result<(), MnistError> {
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
 
-    const M: usize = 200;
+    const M: usize = 300;
 
     println!("Encoding training images...");
     //let train_hvs: Vec<BinaryHDV<N>> = data
