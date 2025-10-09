@@ -1,6 +1,4 @@
-use engram::{
-    ItemMemory, MultiChannelAccumulator, MultiChannelHDV, encode_image, encode_image3, predict,
-};
+use engram::{ItemMemory, MultiChannelAccumulator, MultiChannelHDV, encode_image3};
 //use hypervector::Accumulator;
 //use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use mnist::error::MnistError;
@@ -13,17 +11,17 @@ fn spread<const N: usize, const M: usize>(models: &[MultiChannelHDV<N, M>]) {
     for channel in 0..M {
         let mut dist = 0;
         for d1 in 0..10 {
-            for d2 in (d1+1)..10 {
+            for d2 in (d1 + 1)..10 {
                 dist += models[d1].hdvs[channel].hamming_distance(&models[d2].hdvs[channel]);
             }
         }
         spread[channel] = dist as f64;
-        println!("Channel {channel}, Spread {dist}");
+        //println!("Channel {channel}, Spread {dist}");
     }
     let total: f64 = spread.iter().sum();
     if total > 0.0 {
         for (channel, sp) in spread.iter().enumerate() {
-            println!("Channel {channel}, Spread {:.2}", sp / total);
+            println!("Channel {channel}, Spread {:.4}", sp / total);
         }
     }
 }
@@ -62,6 +60,7 @@ fn main() -> Result<(), MnistError> {
         accumulators[data.train_labels[i] as usize].add(hdv, 1.0);
     }
 
+    let weights = [1.0; M];
     // --- Iterative Correction ---
     if n_epochs > 1 {
         // Shuffle data for each epoch
@@ -78,12 +77,12 @@ fn main() -> Result<(), MnistError> {
             for &i in &train_indices {
                 let img_hdv = &train_hvs[i];
                 let true_label = data.train_labels[i];
-                let predicted = img_hdv.predict(&models, &[29,38,33]);
+                let predicted = img_hdv.predict(&models, &weights);
 
                 if predicted != true_label {
                     errors += 1;
-                    accumulators[true_label as usize].add(img_hdv, 1.0 * lr);
-                    accumulators[predicted as usize].add(img_hdv, -1.0 * lr);
+                    accumulators[true_label as usize].add(img_hdv, lr);
+                    accumulators[predicted as usize].add(img_hdv, -lr);
                 }
             }
             let total = train_hvs.len();
@@ -100,7 +99,7 @@ fn main() -> Result<(), MnistError> {
         .iter()
         .zip(&data.test_labels)
         .map(|(hdv, &label)| {
-            let predicted = hdv.predict(&models, &[1, 1, 1]);
+            let predicted = hdv.predict(&models, &weights);
             (predicted == label) as usize
         })
         .sum();

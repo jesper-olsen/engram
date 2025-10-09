@@ -88,13 +88,13 @@ pub struct MultiChannelHDV<const N: usize, const M: usize> {
 }
 
 impl<const N: usize, const M: usize> MultiChannelHDV<N, M> {
-    pub fn predict(&self, models: &[MultiChannelHDV<N, M>], weights: &[usize; M]) -> u8 {
-        let mut min_dist = usize::MAX;
+    pub fn predict(&self, models: &[MultiChannelHDV<N, M>], weights: &[f32; M]) -> u8 {
+        let mut min_dist = f32::MAX;
         let mut best_model = 0;
         for j in 0..10 {
-            let mut dist = 0;
+            let mut dist = 0.0;
             for i in 0..M {
-                dist += self.hdvs[i].hamming_distance(&models[j].hdvs[i]) * weights[i];
+                dist += self.hdvs[i].hamming_distance(&models[j].hdvs[i]) as f32 * weights[i];
             }
             if dist < min_dist {
                 min_dist = dist;
@@ -146,7 +146,7 @@ pub fn encode_image_features<const N: usize>(
 ) -> BinaryHDV<N> {
     assert!(pixels.len() == 784);
     let mut feature_accumulator = BinaryAccumulator::new();
-    let edge_threshold = 50; // You can tune this
+    let edge_threshold = 50; // tunable
     let width = 28;
     let height = 28;
 

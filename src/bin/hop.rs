@@ -9,18 +9,6 @@ use std::io::Write;
 const N: usize = 100;
 const IDIM: usize = N * usize::BITS as usize + 2 * 8;
 
-fn decode_label(lab: u16) -> Option<u8> {
-    // Keep only bits 0..=9 (10 valid digits for MNIST).
-    let masked = lab & 0x03FF; // 0000_0011_1111_1111 = lower 10 bits
-
-    // If no bit set or multiple bits set → invalid.
-    if masked == 0 || masked.count_ones() != 1 {
-        return None;
-    }
-
-    Some(masked.trailing_zeros() as u8)
-}
-
 fn is_power_of_two(n: u16) -> bool {
     let n = n & 0b11_1111_1111;
     n != 0 && n & (n - 1) == 0
