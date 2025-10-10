@@ -9,6 +9,7 @@ hypervector = {git = "https://github.com/jesper-olsen/hypervector"}
 hopfield = {git = "https://github.com/jesper-olsen/hopfield"}
 rand = "0.9.2"
 mnist = { git = "https://github.com/jesper-olsen/mnist-rs.git" }
+rayon = "1.11.0"
 
 [features]
 #default = []     

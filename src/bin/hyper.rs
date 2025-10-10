@@ -1,13 +1,14 @@
-use engram::{ItemMemory, MultiChannelAccumulator, MultiChannelHDV, encode_image3};
-//use hypervector::Accumulator;
-//use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
+use engram::{ItemMemory, MultiChannelAccumulator, MultiChannelHDV};
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
 use rand::rng;
 use rand::seq::SliceRandom;
+use rayon::prelude::*;
 
-fn spread<const N: usize, const M: usize>(models: &[MultiChannelHDV<N, M>]) {
-    let mut spread = [0f64; M];
+fn calc_channel_weights<const N: usize, const M: usize>(
+    models: &[MultiChannelHDV<N, M>],
+) -> [f32; M] {
+    let mut spread = [0f32; M];
     for channel in 0..M {
         let mut dist = 0;
         for d1 in 0..10 {
@@ -15,42 +16,64 @@ fn spread<const N: usize, const M: usize>(models: &[MultiChannelHDV<N, M>]) {
                 dist += models[d1].hdvs[channel].hamming_distance(&models[d2].hdvs[channel]);
             }
         }
-        spread[channel] = dist as f64;
+        spread[channel] = dist as f32;
         //println!("Channel {channel}, Spread {dist}");
     }
-    let total: f64 = spread.iter().sum();
+    let total: f32 = spread.iter().sum();
     if total > 0.0 {
-        for (channel, sp) in spread.iter().enumerate() {
-            println!("Channel {channel}, Spread {:.4}", sp / total);
-        }
+        spread.iter_mut().for_each(|e| *e /= total);
     }
+    spread
+}
+
+fn calc_test_accuracy<const N: usize, const M: usize>(
+    test_hvs: &[MultiChannelHDV<N, M>],
+    test_labels: &[u8],
+    models: &[MultiChannelHDV<N, M>; 10],
+) -> (usize, usize, f64) {
+    let weights = calc_channel_weights(models);
+    let correct: usize = test_hvs
+        .iter()
+        .zip(test_labels)
+        .map(|(hdv, &label)| {
+            let predicted = hdv.predict(models, &weights);
+            (predicted == label) as usize
+        })
+        .sum();
+
+    let total = test_hvs.len();
+    let acc = if total > 0 {
+        100.0 * correct as f64 / total as f64
+    } else {
+        0.0
+    };
+    (correct, total, acc)
 }
 
 fn main() -> Result<(), MnistError> {
-    const N: usize = 100;
+    const N: usize = 200;
+    const M: usize = 4;
     let imem = ItemMemory::<N>::new();
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
-
-    const M: usize = 3;
 
     println!("Encoding training images...");
     //let train_hvs: Vec<BinaryHDV<N>> = data
     let train_hvs: Vec<MultiChannelHDV<N, M>> = data
         .train_images
-        .iter()
-        .map(|im| encode_image3(im.as_u8_array(), &imem))
+        .par_iter()
+        .map(|im| MultiChannelHDV::<N, M>::encode_image4(im.as_u8_array(), &imem))
         .collect();
 
     println!("Encoding test images...");
     //let test_hvs: Vec<BinaryHDV<N>> = data
     let test_hvs: Vec<MultiChannelHDV<N, M>> = data
         .test_images
-        .iter()
-        .map(|im| encode_image3(im.as_u8_array(), &imem))
+        .par_iter()
+        .map(|im| MultiChannelHDV::<N, M>::encode_image4(im.as_u8_array(), &imem))
         .collect();
 
-    let n_epochs = 10;
+    let n_epochs = 5000;
     let mut accumulators: [MultiChannelAccumulator<N, M>; 10] =
         core::array::from_fn(|_| MultiChannelAccumulator::<N, M>::new());
 
@@ -88,27 +111,29 @@ fn main() -> Result<(), MnistError> {
             let total = train_hvs.len();
             let correct = total - errors;
             let acc = 100.0 * correct as f64 / total as f64;
-            println!("Epoch: {epoch:3} Training Accuracy: {correct:5}/{total} = {acc:.2}%");
+
+            let (_test_correct, _test_total, test_acc) =
+                calc_test_accuracy(&test_hvs, &data.test_labels, &models);
+            //println!("Epoch: {epoch:3} Training Accuracy: {correct:5}/{total} = {acc:.2}%");
+            println!(
+                "Epoch: {epoch:3} Training Accuracy: {correct:5}/{total} = {acc:.2}% test {test_acc:.2}%"
+            );
+            if errors == 0 {
+                break;
+            }
         }
     }
 
     // --- Final Evaluation ---
     let models: [MultiChannelHDV<N, M>; 10] = core::array::from_fn(|i| accumulators[i].finalize());
 
-    let correct: usize = test_hvs
-        .iter()
-        .zip(&data.test_labels)
-        .map(|(hdv, &label)| {
-            let predicted = hdv.predict(&models, &weights);
-            (predicted == label) as usize
-        })
-        .sum();
+    let (test_correct, test_total, test_acc) =
+        calc_test_accuracy(&test_hvs, &data.test_labels, &models);
+    println!("Test Accuracy {test_correct}/{test_total} = {test_acc:.2}%");
 
-    let total = data.test_images.len();
-    let acc = 100.0 * correct as f64 / total as f64;
-    println!("Test Accuracy {correct}/{total} = {acc:.2}%");
-
-    spread(&models);
+    // for (channel, sp) in weights.iter().enumerate() {
+    //     println!("Channel {channel}, Spread {:.4}", sp);
+    // }
 
     Ok(())
 }

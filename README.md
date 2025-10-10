@@ -21,6 +21,22 @@ Epoch:  10 Training Accuracy: 55984/60000 = 93.31%
 Test Accuracy 9380/10000 = 93.80%
 ```
 
+N: dimension = N*64
+M: Number of channels
+Pixel_Bag, Horizontal, Vertical, Diagonal: Features 
+          
+|  N   | M | Pixel_Bag | Horizontal | Vertical | Diagonal | Acc Train (%) | Acc Test (%) | Epochs
+|  100 | 1 |   +       |  +         |  +       | +        |  99.56        | 95.43        |   5000
+|  200 | 1 |   +       |  +         |  +       | +        |  99.92        | 95.52        |   5000
+|  400 | 1 |   +       |  +         |  +       | +        | 100.00        | 95.90        |   5000
+|  800 | 1 |   +       |  +         |  +       | +        | 100.00        | 95.98        |   5000
+| 1000 | 1 |   +       |  +         |  +       | +        | 100.00        | 96.33        |   5000
+| 1600 | 1 |   +       |  +         |  +       | +        | 100.00        | 96.26        |   5000
+
+|  100 | 4 |   +       |  +         |  +       | +        | 100.00        | 95.52        |   5000
+|  200 | 4 |   +       |  +         |  +       | +        | 100.00        | 95.79        |   5000
+
+
 
 Bag-of-pixels hypervector stored in a Hopfield network 
 
