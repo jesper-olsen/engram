@@ -1,4 +1,4 @@
-use engram::{ItemMemory, encode_image_bag};
+use engram::{ItemMemory, encode_image};
 use hopfield::hopfield::Hopfield;
 use hopfield::state::State;
 use hypervector::binary_hdv::BinaryHDV;
@@ -58,7 +58,7 @@ fn main() -> Result<(), MnistError> {
                 .zip(data.train_labels.iter())
                 .enumerate()
             {
-                let img_hdv = encode_image_bag(im.as_u8_array(), &imem);
+                let img_hdv = encode_image(im.as_u8_array(), &imem);
                 let state = image_to_state(&img_hdv, digit);
                 net.perceptron_conv_procedure(&state);
                 if i % 100 == 0 {
@@ -76,7 +76,7 @@ fn main() -> Result<(), MnistError> {
 
     let (mut correct, mut n_ambiguous, mut no_result, mut error) = (0, 0, 0, 0);
     for (im, &digit) in data.test_images.iter().zip(data.test_labels.iter()) {
-        let img_hdv = encode_image_bag(im.as_u8_array(), &imem);
+        let img_hdv = encode_image(im.as_u8_array(), &imem);
         let mut state = image_to_state(&img_hdv, digit);
         let vam: Vec<u8> = classify(&net, &mut state);
         match vam.as_slice() {

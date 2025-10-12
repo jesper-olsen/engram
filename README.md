@@ -1,6 +1,8 @@
 ## Engram
 
-Modelling MNIST with hypervectors and Hopfield networks.
+Modelling MNIST with hypervectors, Hopfield networks and KMeans clustering.
+
+## Perceptron trained hypervectors
 
 Bag-of-pixels hypervector (6400 dimensions) encoded images:
 
@@ -22,28 +24,49 @@ Test Accuracy 9380/10000 = 93.80%
 ```
 
 N: dimension = N*64
-M: Number of channels
 Pixel_Bag, Horizontal, Vertical, Diagonal: Features 
           
-|  N   | M | Pixel_Bag | Horizontal | Vertical | Diagonal | Acc Train (%) | Acc Test (%) | Epochs
-|  100 | 1 |   +       |  +         |  +       | +        |  99.56        | 95.43        |   5000
-|  200 | 1 |   +       |  +         |  +       | +        |  99.92        | 95.52        |   5000
-|  400 | 1 |   +       |  +         |  +       | +        | 100.00        | 95.90        |   5000
-|  800 | 1 |   +       |  +         |  +       | +        | 100.00        | 95.98        |   5000
-| 1000 | 1 |   +       |  +         |  +       | +        | 100.00        | 96.33        |   5000
-| 1600 | 1 |   +       |  +         |  +       | +        | 100.00        | 96.26        |   5000
+|  N   |  Pixel_Bag | Horizontal | Vertical | Diagonal | Acc Train (%) | Acc Test (%) | Epochs
+|  100 |    +       |  -         |  -       | -        |  93.84        | 88.97        |   5000
+|  100 |    -       |  +         |  -       | -        |  88.97        | 86.40        |   5000
+|  100 |    -       |  -         |  +       | -        |  81.96        | 82.05        |   5000
+|  100 |    -       |  -         |  -       | +        |  97.57        | 92.14        |   5000
+|  100 |    +       |  +         |  +       | +        |  98.91        | 94.60        |   5000
 
-|  100 | 4 |   +       |  +         |  +       | +        | 100.00        | 95.52        |   5000
-|  200 | 4 |   +       |  +         |  +       | +        | 100.00        | 95.79        |   5000
+|  200 |    +       |  +         |  +       | +        |  99.94        | 95.53        |   5000
+|  400 |    +       |  +         |  +       | +        | 100.00        | 95.90        |   5000
+|  400 |    +       |  +         |  +       | +        |  99.99        | 94.90        |   5000  <- +polarity
+|  800 |    +       |  +         |  +       | +        | 100.00        | 95.98        |   5000
+| 1600 |    +       |  +         |  +       | +        | 100.00        | 96.26        |   5000
 
 
+
+## Hopfield 
 
 Bag-of-pixels hypervector stored in a Hopfield network 
 
+N = 100 (6400 bits)
 ```text
-ambiguous 275/10000 = 2.75%
-no result 512/10000 = 5.12%
-correct/total 8662/10000 = 86.62%
-correct/unambiguous 8662/9213 = 94.02%
-errors/unambiguous 551/9213 = 5.98%
+ambiguous 294/10000 = 2.94%
+no result 457/10000 = 4.57%
+correct/total 8802/10000 = 88.02%
+correct/unambiguous 8802/9249 = 95.17%
+errors/unambiguous 447/9249 = 4.83%
+```
+
+## KMeans 
+
+```text
+cargo run --bin cb --release
+```
+
+Classification accuracy (%) - Hypervector dimension vs codebook size
+```
+   K      1     2     4     8    16    20
+N
+ 100: 86.05 88.13 90.44 91.76 93.28 93.52
+ 200: 86.61 88.70 90.97 92.23 93.12 93.62
+ 400: 86.71 88.89 90.87 92.56 93.20 93.49
+ 800: 86.86 88.77 91.24 92.82 93.38 93.84
+1600: 86.84 89.07 91.05 92.57 93.13 93.62
 ```

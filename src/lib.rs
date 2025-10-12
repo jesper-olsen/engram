@@ -4,7 +4,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 
-//pub mod cluster;
+pub mod kmeans;
 
 pub struct ItemMemory<const N: usize> {
     //pub positions: [BinaryHDV<N>; 28 * 28],
@@ -76,108 +76,13 @@ const FEATURE_VERTICAL: u8 = 4;
 const FEATURE_DIAGONAL: u8 = 8;
 
 pub fn encode_image<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) -> BinaryHDV<N> {
-    encode_image_bag(pixels, item_memory)
-    //encode_image_features(pixels, item_memory)
-}
-
-pub fn encode_image_bag<const N: usize>(
-    pixels: &[u8],
-    item_memory: &ItemMemory<N>,
-) -> BinaryHDV<N> {
     assert!(pixels.len() == 784);
     let mut accumulator = BinaryAccumulator::new();
-    //let threshold = 10;
-    let threshold = 30;
-    //let threshold = 0;
-
-    for (i, &intensity) in pixels.iter().enumerate() {
-        if intensity >= threshold {
-            let pos_hdv = &item_memory.positions[i];
-            let intensity_hdv = &item_memory.intensities[intensity as usize];
-            let pixel_hdv = pos_hdv.bind(intensity_hdv);
-            accumulator.add(&pixel_hdv, 1.0);
-        }
-    }
-
-    accumulator.finalize()
-}
-
-pub struct MultiChannelHDV<const N: usize, const M: usize> {
-    pub hdvs: [BinaryHDV<N>; M],
-}
-
-impl<const N: usize, const M: usize> MultiChannelHDV<N, M> {
-    pub fn encode_image1(pixels: &[u8], item_memory: &ItemMemory<N>) -> MultiChannelHDV<N, 1> {
-        let h = encode_image_features(
-            pixels,
-            item_memory,
-            FEATURE_PIXEL_BAG | FEATURE_HORIZONTAL | FEATURE_VERTICAL | FEATURE_DIAGONAL,
-        );
-        MultiChannelHDV::<N, 1> { hdvs: [h] }
-    }
-
-    pub fn encode_image4(pixels: &[u8], item_memory: &ItemMemory<N>) -> MultiChannelHDV<N, 4> {
-        let h1 = encode_image_features(pixels, item_memory, FEATURE_PIXEL_BAG);
-        let h2 = encode_image_features(pixels, item_memory, FEATURE_HORIZONTAL);
-        let h3 = encode_image_features(pixels, item_memory, FEATURE_VERTICAL);
-        let h4 = encode_image_features(pixels, item_memory, FEATURE_DIAGONAL);
-        MultiChannelHDV::<N, 4> {
-            hdvs: [h1, h2, h3, h4],
-        }
-    }
-
-    pub fn predict(&self, models: &[MultiChannelHDV<N, M>], weights: &[f32; M]) -> u8 {
-        let mut min_dist = f32::MAX;
-        let mut best_model = 0;
-        for j in 0..10 {
-            let mut dist = 0.0;
-            for i in 0..M {
-                dist += self.hdvs[i].hamming_distance(&models[j].hdvs[i]) as f32 * weights[i];
-            }
-            if dist < min_dist {
-                min_dist = dist;
-                best_model = j;
-            }
-        }
-        best_model as u8
-    }
-}
-
-pub struct MultiChannelAccumulator<const N: usize, const M: usize> {
-    accs: [BinaryAccumulator<N>; M],
-}
-
-impl<const N: usize, const M: usize> MultiChannelAccumulator<N, M> {
-    pub fn new() -> MultiChannelAccumulator<N, M> {
-        MultiChannelAccumulator {
-            accs: core::array::from_fn(|_| BinaryAccumulator::<N>::new()),
-        }
-    }
-
-    pub fn add(&mut self, mhdv: &MultiChannelHDV<N, M>, weight: f64) {
-        for i in 0..M {
-            self.accs[i].add(&mhdv.hdvs[i], weight)
-        }
-    }
-
-    pub fn finalize(&self) -> MultiChannelHDV<N, M> {
-        MultiChannelHDV::<N, M> {
-            hdvs: core::array::from_fn(|i| self.accs[i].finalize()),
-        }
-    }
-}
-
-pub fn encode_image_features<const N: usize>(
-    pixels: &[u8],
-    item_memory: &ItemMemory<N>,
-    features: u8,
-) -> BinaryHDV<N> {
-    assert!(pixels.len() == 784);
-    let mut feature_accumulator = BinaryAccumulator::new();
     let edge_threshold = 50; // tunable
     let width = 28;
     let height = 28;
 
+    let features = FEATURE_PIXEL_BAG | FEATURE_HORIZONTAL | FEATURE_VERTICAL | FEATURE_DIAGONAL;
     if features & FEATURE_PIXEL_BAG != 0 {
         //let threshold = 10;
         let threshold = 30;
@@ -187,7 +92,7 @@ pub fn encode_image_features<const N: usize>(
             if intensity >= threshold {
                 let intensity_hdv = &item_memory.intensities[intensity as usize];
                 let pixel_hdv = item_memory.positions[i].bind(intensity_hdv);
-                feature_accumulator.add(&pixel_hdv, 1.0);
+                accumulator.add(&pixel_hdv, 1.0);
             }
         }
     }
@@ -214,7 +119,7 @@ pub fn encode_image_features<const N: usize>(
                 if diff.abs() > edge_threshold {
                     let feature_hdv =
                         item_memory.positions[tl_idx].bind(&item_memory.feature_horizontal_edge);
-                    feature_accumulator.add(&feature_hdv, 1.0);
+                    accumulator.add(&feature_hdv, 1.0);
                 }
             }
 
@@ -224,7 +129,7 @@ pub fn encode_image_features<const N: usize>(
                 if diff.abs() > edge_threshold {
                     let feature_hdv =
                         item_memory.positions[tl_idx].bind(&item_memory.feature_vertical_edge);
-                    feature_accumulator.add(&feature_hdv, 1.0);
+                    accumulator.add(&feature_hdv, 1.0);
                 }
             }
             if features & FEATURE_DIAGONAL != 0 {
@@ -234,7 +139,7 @@ pub fn encode_image_features<const N: usize>(
                     // This edge exists at the top-left position
                     let feature_hdv =
                         item_memory.positions[tl_idx].bind(&item_memory.feature_diag_tl_br);
-                    feature_accumulator.add(&feature_hdv, 1.0);
+                    accumulator.add(&feature_hdv, 1.0);
                 }
 
                 // --- Check for Diagonal Edge (/) --- (comparing tr and bl)
@@ -243,11 +148,24 @@ pub fn encode_image_features<const N: usize>(
                     // This edge also exists conceptually at the top-left of the 2x2 block
                     let feature_hdv =
                         item_memory.positions[tl_idx].bind(&item_memory.feature_diag_tr_bl);
-                    feature_accumulator.add(&feature_hdv, 1.0);
+                    accumulator.add(&feature_hdv, 1.0);
                 }
             }
         }
     }
 
-    feature_accumulator.finalize()
+    accumulator.finalize()
+}
+
+pub fn predict<const N: usize>(h: &BinaryHDV<N>, models: &[BinaryHDV<N>]) -> u8 {
+    let mut min_dist = usize::MAX;
+    let mut best_model = 0;
+    for (j, model) in models.iter().enumerate() {
+        let dist = model.hamming_distance(h);
+        if dist < min_dist {
+            min_dist = dist;
+            best_model = j;
+        }
+    }
+    best_model as u8
 }
