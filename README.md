@@ -44,7 +44,12 @@ Pixel_Bag, Horizontal, Vertical, Diagonal: Features
 
 Bag-of-pixels hypervector stored in a Hopfield network 
 
-N = 100 (6400 bits)
+```sh
+cargo run --bin hop --release
+```
+
+For N = 100 (6400 bits)
+
 ```text
 ambiguous 294/10000 = 2.94%
 no result 457/10000 = 4.57%
