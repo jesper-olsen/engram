@@ -26,7 +26,8 @@ Test Accuracy 9380/10000 = 93.80%
 N: dimension = N*64
 Pixel_Bag, Horizontal, Vertical, Diagonal: Features 
           
-|  N   |  Pixel_Bag | Horizontal | Vertical | Diagonal | Acc Train (%) | Acc Test (%) | Epochs
+|  N   |  Pixel_Bag | Horizontal | Vertical | Diagonal | Acc Train (%) | Acc Test (%) | Epochs      |
+|------|------------|------------|----------|----------|---------------|--------------|-------------|
 |  100 |    +       |  -         |  -       | -        |  93.84        | 88.97        |   5000
 |  100 |    -       |  +         |  -       | -        |  88.97        | 86.40        |   5000
 |  100 |    -       |  -         |  +       | -        |  81.96        | 82.05        |   5000
