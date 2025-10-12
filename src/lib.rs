@@ -88,7 +88,7 @@ pub fn encode_image<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) 
         let threshold = 30;
         //let threshold = 0;
 
-        for (i, &intensity) in pixels.iter().enumerate() {
+        for (I, &intensity) in pixels.iter().enumerate() {
             if intensity >= threshold {
                 let intensity_hdv = &item_memory.intensities[intensity as usize];
                 let pixel_hdv = item_memory.positions[i].bind(intensity_hdv);
@@ -99,13 +99,13 @@ pub fn encode_image<const N: usize>(pixels: &[u8], item_memory: &ItemMemory<N>) 
 
     // Iterate through each pixel as the top-left of a potential 2x2 grid
     // We stop one short of the edge to avoid bounds checks inside the loop for neighbors
-    for y in 0..(height - 1) {
-        for x in 0..(width - 1) {
+    for y in 0..(height - 2) {
+        for x in 0..(width - 2) {
             // Get the indices for the 2x2 pixel block
             let tl_idx = y * width + x;
-            let tr_idx = y * width + (x + 1);
-            let bl_idx = (y + 1) * width + x;
-            let br_idx = (y + 1) * width + (x + 1);
+            let tr_idx = y * width + (x + 2);
+            let bl_idx = (y + 2) * width + x;
+            let br_idx = (y + 2) * width + (x + 2);
 
             // Get the intensities as signed integers for subtraction
             let tl_intensity = pixels[tl_idx] as i16;

@@ -24,7 +24,7 @@ Test Accuracy 9380/10000 = 93.80%
 ```
 
 N: dimension = N*64
-Pixel_Bag, Horizontal, Vertical, Diagonal: Features 
+Features (2x2): Pixel_Bag, Horizontal, Vertical, Diagonal 
           
 |  N   |  Pixel_Bag | Horizontal | Vertical | Diagonal | Acc Train (%) | Acc Test (%) | Epochs                  | 
 |-----:|:----------:|:----------:|:--------:|:--------:|--------------:|-------------:|------------------------:|
@@ -39,6 +39,12 @@ Pixel_Bag, Horizontal, Vertical, Diagonal: Features
 |  800 |    +       |  +         |  +       | +        | 100.00        | 95.98        |               5000      |
 | 1600 |    +       |  +         |  +       | +        | 100.00        | 96.26        |               5000      |
 
+3x3 features 
+|  100 |    +       |  +         |  +       | +        |  98.64        | 95.74        |               5000      |
+|  200 |    +       |  +         |  +       | +        |  99.92        | 96.46        |               5000      |
+|  400 |    +       |  +         |  +       | +        |  99.99        | 96.50        |               5000      |
+|  800 |    +       |  +         |  +       | +        |  99.98        | 96.74        |               5000      |
+| 1600 |    +       |  +         |  +       | +        |  99.97        | 96.91        |               5000      |
 
 ## Hopfield 
 

@@ -31,7 +31,7 @@ fn calc_test_accuracy<const N: usize>(
 }
 
 fn main() -> Result<(), MnistError> {
-    const N: usize = 100;
+    const N: usize = 1600;
     let imem = ItemMemory::<N>::new();
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
