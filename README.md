@@ -4,47 +4,25 @@ Modelling MNIST with hypervectors, Hopfield networks and KMeans clustering.
 
 ## Perceptron trained hypervectors
 
-Bag-of-pixels hypervector (6400 dimensions) encoded images:
-
-```text
-Read 60000 training labels
-Encoding training images...
-Encoding test images...
-Epoch:   1 (Bundling)
-Epoch:   2 Training Accuracy: 52654/60000 = 87.76%
-Epoch:   3 Training Accuracy: 54205/60000 = 90.34%
-Epoch:   4 Training Accuracy: 54687/60000 = 91.14%
-Epoch:   5 Training Accuracy: 55058/60000 = 91.76%
-Epoch:   6 Training Accuracy: 55366/60000 = 92.28%
-Epoch:   7 Training Accuracy: 55556/60000 = 92.59%
-Epoch:   8 Training Accuracy: 55708/60000 = 92.85%
-Epoch:   9 Training Accuracy: 55855/60000 = 93.09%
-Epoch:  10 Training Accuracy: 55984/60000 = 93.31%
-Test Accuracy 9380/10000 = 93.80%
+```sh
+cargo run --bin hyper --release
 ```
 
 N: dimension = N*64
-Features (2x2): Pixel_Bag, Horizontal, Vertical, Diagonal 
+Features: Pixel_Bag, Horizontal, Vertical, Diagonal (Sobel edge_threshold 250)
           
-|  N   |  Pixel_Bag | Horizontal | Vertical | Diagonal | Acc Train (%) | Acc Test (%) | Epochs                  | 
-|-----:|:----------:|:----------:|:--------:|:--------:|--------------:|-------------:|------------------------:|
-|  100 |    +       |  -         |  -       | -        |  93.84        | 88.97        |               5000      | 
-|  100 |    -       |  +         |  -       | -        |  88.97        | 86.40        |               5000      |
-|  100 |    -       |  -         |  +       | -        |  81.96        | 82.05        |               5000      |
-|  100 |    -       |  -         |  -       | +        |  97.57        | 92.14        |               5000      |
-|  100 |    +       |  +         |  +       | +        |  98.91        | 94.60        |               5000      |
-|  200 |    +       |  +         |  +       | +        |  99.94        | 95.53        |               5000      |
-|  400 |    +       |  +         |  +       | +        | 100.00        | 95.90        |               5000      |
-|  400 |    +       |  +         |  +       | +        |  99.99        | 94.90        | +polarity ->  5000      | 
-|  800 |    +       |  +         |  +       | +        | 100.00        | 95.98        |               5000      |
-| 1600 |    +       |  +         |  +       | +        | 100.00        | 96.26        |               5000      |
-
-3x3 features 
-|  100 |    +       |  +         |  +       | +        |  98.64        | 95.74        |               5000      |
-|  200 |    +       |  +         |  +       | +        |  99.92        | 96.46        |               5000      |
-|  400 |    +       |  +         |  +       | +        |  99.99        | 96.50        |               5000      |
-|  800 |    +       |  +         |  +       | +        |  99.98        | 96.74        |               5000      |
-| 1600 |    +       |  +         |  +       | +        |  99.97        | 96.91        |               5000      |
+|  N   |  Pixel_Bag | Horizontal | Vertical | Diagonal1 | Diagonal2    | Acc Train (%) | Acc Test (%) | Epochs    | 
+|-----:|:----------:|:----------:|:--------:|:--------:|--------------:|-------------:|--------------------------:|
+|  100 |    +       |  -         |  -       | -        | -             | 97.65        | 92.60         | 5000      | 
+|  100 |    -       |  +         |  -       | -        | -             | 91.86        | 85.81         | 5000      | 
+|  100 |    -       |  -         |  +       | -        | -             | 87.08        | 85.72         | 5000      | 
+|  100 |    -       |  -         |  -       | +        | -             | 85.55        | 79.74         | 5000      | 
+|  100 |    -       |  -         |  -       | -        | +             | 89.64        | 87.75         | 5000      | 
+|  100 |    +       |  +         |  +       | +        | +             | 99.70        | 96.24         | 5000      |
+|  200 |    +       |  +         |  +       | +        | +             | 99.93        | 96.67         | 5000      |
+|  400 |    +       |  +         |  +       | +        | +             | 99.98        | 96.87         | 5000      |
+|  800 |    +       |  +         |  +       | +        | +             | 99.98        | 96.94         | 5000      |
+| 1600 |    +       |  +         |  +       | +        | +             | 99.98        | 97.03         | 5000      |
 
 ## Hopfield 
 

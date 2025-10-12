@@ -31,7 +31,7 @@ fn calc_test_accuracy<const N: usize>(
 }
 
 fn main() -> Result<(), MnistError> {
-    const N: usize = 1600;
+    const N: usize = 100;
     let imem = ItemMemory::<N>::new();
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
@@ -89,8 +89,8 @@ fn main() -> Result<(), MnistError> {
 
             let (_test_correct, _test_total, test_acc) =
                 calc_test_accuracy(&test_hvs, &data.test_labels, &models);
-            println!(
-                "Epoch: {epoch:3} Training Accuracy: {correct:5}/{total} = {acc:.2}% test {test_acc:.2}%"
+            print!(
+                "Epoch: {epoch:3}/{n_epochs} Training Accuracy: {correct:5}/{total} = {acc:.2}% Test: {test_acc:.2}%\r"
             );
             if errors == 0 {
                 break;
@@ -103,7 +103,7 @@ fn main() -> Result<(), MnistError> {
 
     let (test_correct, test_total, test_acc) =
         calc_test_accuracy(&test_hvs, &data.test_labels, &models);
-    println!("Test Accuracy {test_correct}/{test_total} = {test_acc:.2}%");
+    println!("\nTest Accuracy {test_correct}/{test_total} = {test_acc:.2}%");
 
     Ok(())
 }
