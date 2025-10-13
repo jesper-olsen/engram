@@ -14,19 +14,20 @@ The Perceptron and K-Means methods are fast and storage-efficient, while the Hop
 Clone the repository:
 
 ```sh
-git clone https://github.com/your-username/engram.git
+git clone https://github.com/jesper-olsen/engram.git
 cd engram
 ```
 
 [Download](https://github.com/jesper-olsen/mnist-rs) the MNIST dataset.
 
 Run the models:
-Perceptron: `cargo run --bin hyper --release`
-Hopfield: `cargo run --bin hop --release`
-K-Means: `cargo run --bin cb --release`
+
+* Perceptron: `cargo run --bin hyper --release`
+* Hopfield: `cargo run --bin hop --release`
+* K-Means: `cargo run --bin cb --release`
 
 
-## Perceptron trained hypervectors
+## Perceptron Trained Hypervectors
 
 This model uses an iterative perceptron-style training rule to refine 10 prototype hypervectors (one for each digit).
 
