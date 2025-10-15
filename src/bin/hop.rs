@@ -1,10 +1,12 @@
-use engram::{ItemMemory, encode_image};
+use engram::ItemMemory;
 use hopfield::hopfield::Hopfield;
 use hopfield::state::State;
 use hypervector::binary_hdv::BinaryHDV;
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
 use std::io::Write;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 
 const N: usize = 100;
 const IDIM: usize = N * usize::BITS as usize + 2 * 8;
@@ -45,7 +47,9 @@ fn image_to_state<const N: usize>(img_hdv: &BinaryHDV<N>, digit: u8) -> State<ID
 }
 
 fn main() -> Result<(), MnistError> {
-    let imem = ItemMemory::<N>::new();
+    let seed = 42;
+    let mut rng = StdRng::seed_from_u64(seed);
+    let imem = ItemMemory::<N>::new(&mut rng);
     let data = Mnist::load("MNIST")?;
 
     let net = if true {
@@ -58,7 +62,7 @@ fn main() -> Result<(), MnistError> {
                 .zip(data.train_labels.iter())
                 .enumerate()
             {
-                let img_hdv = encode_image(im.as_u8_array(), &imem);
+                let img_hdv = imem.encode_image(im.as_u8_array());
                 let state = image_to_state(&img_hdv, digit);
                 net.perceptron_conv_procedure(&state);
                 if i % 100 == 0 {
@@ -76,7 +80,7 @@ fn main() -> Result<(), MnistError> {
 
     let (mut correct, mut n_ambiguous, mut no_result, mut error) = (0, 0, 0, 0);
     for (im, &digit) in data.test_images.iter().zip(data.test_labels.iter()) {
-        let img_hdv = encode_image(im.as_u8_array(), &imem);
+        let img_hdv = imem.encode_image(im.as_u8_array());
         let mut state = image_to_state(&img_hdv, digit);
         let vam: Vec<u8> = classify(&net, &mut state);
         match vam.as_slice() {

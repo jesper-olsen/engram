@@ -1,10 +1,12 @@
 use engram::kmeans::KMeans;
-use engram::{ItemMemory, encode_image};
+use engram::ItemMemory;
 use hypervector::binary_hdv::BinaryHDV;
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
 //use rand::rng;
 //use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rayon::prelude::*;
 
 fn compute_codebooks<const N: usize>(
@@ -55,8 +57,10 @@ fn classify<const N: usize>(test_hvs: &[BinaryHDV<N>], labels: &[u8], models: &[
 }
 
 fn main() -> Result<(), MnistError> {
-    const N: usize = 1600;
-    let imem = ItemMemory::<N>::new();
+    const N: usize = 100;
+    let seed = 42;
+    let mut rng = StdRng::seed_from_u64(seed);
+    let imem = ItemMemory::<N>::new(&mut rng);
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
 
@@ -64,14 +68,14 @@ fn main() -> Result<(), MnistError> {
     let train_hvs: Vec<BinaryHDV<N>> = data
         .train_images
         .par_iter()
-        .map(|im| encode_image(im.as_u8_array(), &imem))
+        .map(|im| imem.encode_image(im.as_u8_array()))
         .collect();
 
     println!("Encoding test images...");
     let test_hvs: Vec<BinaryHDV<N>> = data
         .test_images
         .par_iter()
-        .map(|im| encode_image(im.as_u8_array(), &imem))
+        .map(|im| imem.encode_image(im.as_u8_array()))
         .collect();
 
     let cbs: Vec<KMeans<N>> = compute_codebooks(&train_hvs, &data.train_labels, 1);
@@ -80,7 +84,7 @@ fn main() -> Result<(), MnistError> {
     let total_bits = N * std::mem::size_of::<usize>() * 8;
     println!("(Total bits = {total_bits})");
 
-    println!("        0      1      2      3      4      5      6      7      7      9");
+    println!("        0      1      2      3      4      5      6      7      8      9");
     println!("------------------------------------------------------------------------");
     for d1 in 0..10 {
         print!("{d1}: ");
@@ -93,8 +97,8 @@ fn main() -> Result<(), MnistError> {
 
     println!("\n--- Average Test Data Distance to Centroids ---");
     println!("       Centroid ->");
-    println!("True      0      1      2      3      4      5      6      7      8      9");
-    println!("--------------------------------------------------------------------------");
+    println!("True    0       1       2       3       4       5       6       7       8       9");
+    println!("----------------------------------------------------------------------------------");
 
     let centroids: Vec<BinaryHDV<N>> = cbs.iter().map(|cb| cb.centroids[0]).collect();
     for true_digit in 0..10u8 {
@@ -114,9 +118,7 @@ fn main() -> Result<(), MnistError> {
         print!("{true_digit:2} | "); // Print the row header (e.g., "7 | ")
 
         // For this set of HVs, calculate avg distance to EACH centroid
-        for centroid_digit in 0..10 {
-            let centroid = &centroids[centroid_digit];
-
+        for centroid in &centroids {
             //  Sum the distances from each HV to the current centroid
             //  This is a perfect place to use Rayon for a speedup!
             let total_distance: usize = digit_test_hvs
