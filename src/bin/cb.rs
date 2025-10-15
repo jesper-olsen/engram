@@ -1,5 +1,5 @@
-use engram::kmeans::KMeans;
 use engram::ItemMemory;
+use engram::kmeans::KMeans;
 use hypervector::binary_hdv::BinaryHDV;
 use mnist::error::MnistError;
 use mnist::{self, Mnist};

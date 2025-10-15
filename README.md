@@ -2,7 +2,7 @@
 
 An exploration of MNIST classification using high-dimensional binary vectors ("hypervectors") with three different modeling approaches:
 
-1. Perceptron Training: An iterative learning model that achieves 97.37% test accuracy.
+1. Perceptron Training: An iterative learning model that achieves 97.89% test accuracy.
 2. K-Means Clustering: A Vector Quantization approach that achieves ~95% test accuracy.
 3. Hopfield Networks: A classic associative memory model that achieves ~88% test accuracy (95% on unambiguous results).
 
@@ -68,12 +68,12 @@ Train ensemble of 5 models (N=100) and combine by voting:
 
 | Model | Accuracy (%) |
 |------:|-------------:|
-|   1   |  96.37       |
-|   2   |  96.18       |  
-|   3   |  96.16       |
-|   4   |  95.91       |
-|   5   |  95.36       |
-|  1..5 |  97.37       |
+|   1   |  97.12       |
+|   2   |  96.99       |  
+|   3   |  96.98       |
+|   4   |  97.16       |
+|   5   |  97.15       |
+|  1..5 |  97.89       |
 
 ## Hopfield 
 This model uses a Hopfield network as a content-addressable memory. During training, the digit's class label is one-hot encoded and stored directly into the first 10 bits of the image's hypervector. At test time, these 10 bits are zeroed out and the network attempts to reconstruct the correct label through convergence.

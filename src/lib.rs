@@ -1,7 +1,13 @@
+//! Feature extraction for MNIST digit images using hyperdimensional computing.
+//!
+//! Encodes images into high-dimensional binary vectors by combining:
+//! - Pixel bag-of-words (position × intensity)
+//! - Edge features (4 orientations via Sobel operators)
+
 use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use hypervector::{Accumulator, HyperVector};
-use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::seq::SliceRandom;
 
 pub mod kmeans;
 
@@ -11,6 +17,12 @@ const FEATURE_VERTICAL: u8 = 4;
 const FEATURE_DIAGONAL1: u8 = 8;
 const FEATURE_DIAGONAL2: u8 = 16;
 
+/// Item memory storing random basis vectors for encoding.
+///
+/// Each `ItemMemory` instance contains:
+/// - Position vectors for each of 784 pixels (28×28)
+/// - Intensity vectors for 256 gray levels (0-255)
+/// - Feature vectors for edge orientations
 pub struct ItemMemory<const N: usize> {
     //pub positions: [BinaryHDV<N>; 28 * 28],
     pub positions: Vec<BinaryHDV<N>>,
@@ -115,7 +127,9 @@ impl<const N: usize> ItemMemory<N> {
                     if diff.abs() > edge_threshold {
                         let feature_hdv =
                             self.positions[center_idx].bind(&self.feature_horizontal_edge);
-                        accumulator.add(&feature_hdv, 1.0);
+                        //accumulator.add(&feature_hdv, 1.0);
+                        let magnitude = (diff.abs() as f64) / 255.0; // Normalize
+                        accumulator.add(&feature_hdv, magnitude);
                     }
                 }
 
@@ -126,7 +140,9 @@ impl<const N: usize> ItemMemory<N> {
                     if diff.abs() > edge_threshold {
                         let feature_hdv =
                             self.positions[center_idx].bind(&self.feature_vertical_edge);
-                        accumulator.add(&feature_hdv, 1.0);
+                        //accumulator.add(&feature_hdv, 1.0);
+                        let magnitude = (diff.abs() as f64) / 255.0; // Normalize
+                        accumulator.add(&feature_hdv, magnitude);
                     }
                 }
                 if features & FEATURE_DIAGONAL1 != 0 {
@@ -134,9 +150,10 @@ impl<const N: usize> ItemMemory<N> {
                     // Kernel: [[0, 1, 2], [-1, 0, 1], [-2, -1, 0]]
                     let diff = (p01 + 2 * p02 + p12) - (p10 + 2 * p20 + p21);
                     if diff.abs() > edge_threshold {
-                        let feature_hdv =
-                            self.positions[center_idx].bind(&self.feature_diag_tl_br);
-                        accumulator.add(&feature_hdv, 1.0);
+                        let feature_hdv = self.positions[center_idx].bind(&self.feature_diag_tl_br);
+                        //accumulator.add(&feature_hdv, 1.0);
+                        let magnitude = (diff.abs() as f64) / 255.0; // Normalize
+                        accumulator.add(&feature_hdv, magnitude);
                     }
                 }
 
@@ -145,9 +162,10 @@ impl<const N: usize> ItemMemory<N> {
                     // Kernel: [[2, 1, 0], [1, 0, -1], [0, -1, -2]]
                     let diff = (2 * p00 + p01 + p10) - (p12 + p21 + 2 * p22);
                     if diff.abs() > edge_threshold {
-                        let feature_hdv =
-                            self.positions[center_idx].bind(&self.feature_diag_tr_bl);
-                        accumulator.add(&feature_hdv, 1.0);
+                        let feature_hdv = self.positions[center_idx].bind(&self.feature_diag_tr_bl);
+                        //accumulator.add(&feature_hdv, 1.0);
+                        let magnitude = (diff.abs() as f64) / 255.0; // Normalize
+                        accumulator.add(&feature_hdv, magnitude);
                     }
                 }
             }
@@ -156,5 +174,3 @@ impl<const N: usize> ItemMemory<N> {
         accumulator.finalize()
     }
 }
-
-

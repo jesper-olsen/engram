@@ -4,9 +4,9 @@ use hopfield::state::State;
 use hypervector::binary_hdv::BinaryHDV;
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
-use std::io::Write;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use std::io::Write;
 
 const N: usize = 100;
 const IDIM: usize = N * usize::BITS as usize + 2 * 8;

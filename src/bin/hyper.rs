@@ -43,7 +43,7 @@ impl<const N: usize> Classifier<N> for Model<N> {
 }
 
 impl<const N: usize> Classifier<N> for EnsembleModel<N> {
-    // add individual distances 
+    // add individual distances
     //fn predict(&self, im: &Image) -> u8 {
     //    let mut min_dist = usize::MAX;
     //    let mut best_class = 0;
@@ -217,8 +217,7 @@ fn main() -> Result<(), MnistError> {
         ensemble.models.push(trainer.model);
     }
 
-    let (correct, total, test_acc) =
-        calc_accuracy(&data.test_images, &data.test_labels, &ensemble);
+    let (correct, total, test_acc) = calc_accuracy(&data.test_images, &data.test_labels, &ensemble);
     println!("Ensemble Test Accuracy: {correct:5}/{total} = {test_acc:.2}%");
     Ok(())
 }
