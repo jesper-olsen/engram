@@ -1,4 +1,4 @@
-use engram::ItemMemory;
+use engram::MnistEncoder;
 use engram::kmeans::KMeans;
 use hypervector::binary_hdv::BinaryHDV;
 use mnist::error::MnistError;
@@ -60,7 +60,7 @@ fn main() -> Result<(), MnistError> {
     const N: usize = 100;
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
-    let imem = ItemMemory::<N>::new(&mut rng);
+    let imem = MnistEncoder::<N>::new(&mut rng);
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
 
@@ -68,14 +68,14 @@ fn main() -> Result<(), MnistError> {
     let train_hvs: Vec<BinaryHDV<N>> = data
         .train_images
         .par_iter()
-        .map(|im| imem.encode_image(im.as_u8_array()))
+        .map(|im| imem.encode(im.as_u8_array()))
         .collect();
 
     println!("Encoding test images...");
     let test_hvs: Vec<BinaryHDV<N>> = data
         .test_images
         .par_iter()
-        .map(|im| imem.encode_image(im.as_u8_array()))
+        .map(|im| imem.encode(im.as_u8_array()))
         .collect();
 
     let cbs: Vec<KMeans<N>> = compute_codebooks(&train_hvs, &data.train_labels, 1);

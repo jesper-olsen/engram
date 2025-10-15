@@ -1,4 +1,4 @@
-use engram::ItemMemory;
+use engram::MnistEncoder;
 use hypervector::{
     Accumulator,
     binary_hdv::{BinaryAccumulator, BinaryHDV},
@@ -15,7 +15,7 @@ const NUM_CLASSES: usize = 10;
 
 struct Model<const N: usize> {
     hdvs: [BinaryHDV<N>; NUM_CLASSES],
-    imem: ItemMemory<N>,
+    imem: MnistEncoder<N>,
 }
 
 struct EnsembleModel<const N: usize> {
@@ -24,7 +24,7 @@ struct EnsembleModel<const N: usize> {
 
 impl<const N: usize> Classifier<N> for Model<N> {
     fn predict(&self, im: &Image) -> u8 {
-        let h = self.imem.encode_image(im.as_u8_array());
+        let h = self.imem.encode(im.as_u8_array());
         self.predict_hdv(&h)
     }
 
@@ -52,7 +52,7 @@ impl<const N: usize> Classifier<N> for EnsembleModel<N> {
     //            .models
     //            .iter()
     //            .map(|model| {
-    //                let h =model.imem.encode_image(im.as_u8_array());
+    //                let h =model.imem.encode(im.as_u8_array());
     //                model.hdvs[i].hamming_distance(&h)
     //            })
     //            .sum();
@@ -125,13 +125,13 @@ struct Trainer<'a, const N: usize> {
 
 impl<'a, const N: usize> Trainer<'a, N> {
     pub fn new(data: &'a Mnist, rng: &mut impl Rng) -> Self {
-        let imem = ItemMemory::<N>::new(rng);
+        let imem = MnistEncoder::<N>::new(rng).with_all_features();
 
         println!("Encoding training images...");
         let train_hvs: Vec<BinaryHDV<N>> = data
             .train_images
             .par_iter()
-            .map(|im| imem.encode_image(im.as_u8_array()))
+            .map(|im| imem.encode(im.as_u8_array()))
             .collect();
 
         let mut accumulators: [BinaryAccumulator<N>; NUM_CLASSES] =
@@ -188,7 +188,7 @@ fn main() -> Result<(), MnistError> {
     const N: usize = 100;
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
-    let ensemble_size = 5;
+    let ensemble_size = 11;
     let mut ensemble = EnsembleModel::<N> {
         models: Vec::with_capacity(ensemble_size),
     };
