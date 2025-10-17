@@ -118,22 +118,19 @@ fn main() -> Result<(), MnistError> {
             continue;
         }
 
-        print!("{true_digit:2} | "); // Print the row header (e.g., "7 | ")
+        print!("{true_digit:2} | "); 
 
         // For this set of HVs, calculate avg distance to EACH centroid
         for centroid in &centroids {
-            //  Sum the distances from each HV to the current centroid
-            //  This is a perfect place to use Rayon for a speedup!
             let total_distance: u32 = digit_test_hvs
                 .par_iter()
                 .map(|&hdv| hdv.hamming_distance(centroid))
                 .sum();
 
-            // 4. Calculate the average
             let avg_distance = total_distance as f64 / num_samples as f64;
             print!("{avg_distance:<7.0} ");
         }
-        println!(); // End of the row
+        println!(); 
     }
 
     println!("\nClassify - codebook size");
