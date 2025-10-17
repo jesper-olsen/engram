@@ -29,7 +29,7 @@ impl<const N: usize> Classifier<N> for Model<N> {
     }
 
     fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8 {
-        let mut min_dist = usize::MAX;
+        let mut min_dist = u32::MAX;
         let mut best_model = 0;
         for (j, model) in self.hdvs.iter().enumerate() {
             let dist = model.hamming_distance(h);

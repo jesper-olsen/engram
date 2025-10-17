@@ -26,7 +26,10 @@ fn compute_codebooks<const N: usize>(
 
         //println!("Digit {digit}: {} samples", hvs.len());
 
-        let cb = KMeans::new(&hvs, k, 100);
+        let mut cb = KMeans::new(&hvs, k);
+        let max_iter=100;
+        let verbose = false;
+        cb.train(&hvs, max_iter, verbose);
         cbs.push(cb);
     }
     cbs
@@ -35,7 +38,7 @@ fn compute_codebooks<const N: usize>(
 fn classify<const N: usize>(test_hvs: &[BinaryHDV<N>], labels: &[u8], models: &[KMeans<N>]) {
     let mut correct = 0;
     for (hv, digit) in test_hvs.iter().zip(labels.iter()) {
-        let mut min_dist = usize::MAX;
+        let mut min_dist = u32::MAX;
         let mut best_cb = 0;
         for (i, cb) in models.iter().enumerate() {
             let (_cluster, dist) = cb.nearest(hv);
@@ -121,7 +124,7 @@ fn main() -> Result<(), MnistError> {
         for centroid in &centroids {
             //  Sum the distances from each HV to the current centroid
             //  This is a perfect place to use Rayon for a speedup!
-            let total_distance: usize = digit_test_hvs
+            let total_distance: u32 = digit_test_hvs
                 .par_iter()
                 .map(|&hdv| hdv.hamming_distance(centroid))
                 .sum();
