@@ -27,7 +27,7 @@ fn compute_codebooks<const N: usize>(
         //println!("Digit {digit}: {} samples", hvs.len());
 
         let mut cb = KMeans::new(&hvs, k);
-        let max_iter=100;
+        let max_iter = 100;
         let verbose = false;
         cb.train(&hvs, max_iter, verbose);
         cbs.push(cb);
@@ -63,7 +63,9 @@ fn main() -> Result<(), MnistError> {
     const N: usize = 100;
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
-    let imem = MnistEncoder::<N>::new(&mut rng);
+    let imem = MnistEncoder::<N>::new(&mut rng)
+        .with_feature_pixel_bag()
+        .with_feature_edges();
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
 
@@ -71,14 +73,14 @@ fn main() -> Result<(), MnistError> {
     let train_hvs: Vec<BinaryHDV<N>> = data
         .train_images
         .par_iter()
-        .map(|im| imem.encode(im.as_u8_array()))
+        .map(|im| imem.encode(im))
         .collect();
 
     println!("Encoding test images...");
     let test_hvs: Vec<BinaryHDV<N>> = data
         .test_images
         .par_iter()
-        .map(|im| imem.encode(im.as_u8_array()))
+        .map(|im| imem.encode(im))
         .collect();
 
     let cbs: Vec<KMeans<N>> = compute_codebooks(&train_hvs, &data.train_labels, 1);
@@ -118,7 +120,7 @@ fn main() -> Result<(), MnistError> {
             continue;
         }
 
-        print!("{true_digit:2} | "); 
+        print!("{true_digit:2} | ");
 
         // For this set of HVs, calculate avg distance to EACH centroid
         for centroid in &centroids {
@@ -130,7 +132,7 @@ fn main() -> Result<(), MnistError> {
             let avg_distance = total_distance as f64 / num_samples as f64;
             print!("{avg_distance:<7.0} ");
         }
-        println!(); 
+        println!();
     }
 
     println!("\nClassify - codebook size");

@@ -15,7 +15,7 @@ const NUM_CLASSES: usize = 10;
 
 struct Model<const N: usize> {
     hdvs: [BinaryHDV<N>; NUM_CLASSES],
-    imem: MnistEncoder<N>,
+    encoder: MnistEncoder<N>,
 }
 
 struct EnsembleModel<const N: usize> {
@@ -24,7 +24,7 @@ struct EnsembleModel<const N: usize> {
 
 impl<const N: usize> Classifier<N> for Model<N> {
     fn predict(&self, im: &Image) -> u8 {
-        let h = self.imem.encode(im.as_u8_array());
+        let h = self.encoder.encode(im);
         self.predict_hdv(&h)
     }
 
@@ -52,7 +52,7 @@ impl<const N: usize> Classifier<N> for EnsembleModel<N> {
     //            .models
     //            .iter()
     //            .map(|model| {
-    //                let h =model.imem.encode(im.as_u8_array());
+    //                let h =model.encoder.encode(im.as_u8_array());
     //                model.hdvs[i].hamming_distance(&h)
     //            })
     //            .sum();
@@ -124,14 +124,23 @@ struct Trainer<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> Trainer<'a, N> {
-    pub fn new(data: &'a Mnist, rng: &mut impl Rng) -> Self {
-        let imem = MnistEncoder::<N>::new(rng).with_all_features();
+    pub fn new(data: &'a Mnist, rng: &mut impl Rng, learned: bool) -> Self {
 
-        println!("Encoding training images...");
+        let encoder = if learned {
+            MnistEncoder::<N>::new(rng)
+            .with_feature_learned()
+            .train_on(&data.train_images)
+        } else {
+            MnistEncoder::<N>::new(rng)
+            .with_feature_pixel_bag()
+            .with_feature_edges()
+        };
+
+        println!("Encoding training images (Dim {N}x64={})...", N * 64);
         let train_hvs: Vec<BinaryHDV<N>> = data
             .train_images
             .par_iter()
-            .map(|im| imem.encode(im.as_u8_array()))
+            .map(|im| encoder.encode(im))
             .collect();
 
         let mut accumulators: [BinaryAccumulator<N>; NUM_CLASSES] =
@@ -148,7 +157,7 @@ impl<'a, const N: usize> Trainer<'a, N> {
 
         let hdvs: [BinaryHDV<N>; NUM_CLASSES] =
             core::array::from_fn(|i| accumulators[i].finalize());
-        let model = Model { hdvs, imem };
+        let model = Model { hdvs, encoder };
 
         Trainer {
             train_hvs,
@@ -194,9 +203,10 @@ fn main() -> Result<(), MnistError> {
     };
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
-    for mn in 0..ensemble_size {
-        let mut trainer = Trainer::new(&data, &mut rng);
-        let n_epochs = 5000;
+    for mn in 1..=ensemble_size {
+        let learned = mn % 2 == 0;
+        let mut trainer = Trainer::new(&data, &mut rng, learned);
+        let n_epochs = 2000;
 
         println!("Training model {mn}");
         for epoch in 1..=n_epochs {
@@ -213,11 +223,15 @@ fn main() -> Result<(), MnistError> {
         }
         let (correct, total, acc) =
             calc_accuracy(&data.test_images, &data.test_labels, &trainer.model);
-        println!("\nTest Accuracy: {correct:5}/{total} = {acc:.2}%");
+        println!("\nTest Accuracy: {correct:5}/{total} = {acc:.2}%\n");
         ensemble.models.push(trainer.model);
-    }
 
-    let (correct, total, test_acc) = calc_accuracy(&data.test_images, &data.test_labels, &ensemble);
-    println!("Ensemble Test Accuracy: {correct:5}/{total} = {test_acc:.2}%");
+        let n = ensemble.models.len();
+        if n > 2 {
+            let (correct, total, acc) =
+                calc_accuracy(&data.test_images, &data.test_labels, &ensemble);
+            println!("Ensemble of {n} Test Accuracy: {correct:5}/{total} = {acc:.2}%\n");
+        }
+    }
     Ok(())
 }

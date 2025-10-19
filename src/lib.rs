@@ -4,18 +4,73 @@
 //! - Pixel bag-of-words (position × intensity)
 //! - Edge features (4 orientations via Sobel operators)
 
+use crate::kmeans::KMeans;
 use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use hypervector::{Accumulator, HyperVector};
+use mnist::Image;
 use rand::Rng;
 use rand::seq::SliceRandom;
 
 pub mod kmeans;
+
+/// A 3x3 view into an image, containing the pixel data and the center coordinate.
+#[derive(Debug, Clone, Copy)]
+pub struct PatchView {
+    /// The 9 pixels of the patch, stored row by row.
+    pub pixels: [u8; 9],
+    /// The x-coordinate of the patch's center in the original image.
+    pub x: usize,
+    /// The y-coordinate of the patch's center in the original image.
+    pub y: usize,
+}
+
+/// Slides a 3x3 window across an image and returns an iterator of PatchViews.
+///
+/// The iterator moves row by row, then column by column, over every possible
+/// 3x3 patch that can be extracted from the image.
+///
+/// # Arguments
+/// * pixels - A flat slice of the image's pixel data.
+/// * width - The width of the source image.
+/// * height - The height of the source image.
+pub fn slide_3x3_window(image: &Image) -> impl Iterator<Item = PatchView> + '_ {
+    // We can only extract patches where the center is at least 1 pixel from any edge.
+    // The valid y-range for a patch center is [1, height - 2].
+    let pixels = image.as_u8_array();
+    let width = image.width();
+    let height = image.height();
+    (1..height - 1).flat_map(move |y| {
+        // The valid x-range for a patch center is [1, width - 2].
+        (1..width - 1).map(move |x| {
+            // Top row of the patch
+            let p00 = pixels[(y - 1) * width + (x - 1)];
+            let p01 = pixels[(y - 1) * width + x];
+            let p02 = pixels[(y - 1) * width + (x + 1)];
+            // Middle row
+            let p10 = pixels[y * width + (x - 1)];
+            let p11 = pixels[y * width + x]; // The center pixel
+            let p12 = pixels[y * width + (x + 1)];
+            // Bottom row
+            let p20 = pixels[(y + 1) * width + (x - 1)];
+            let p21 = pixels[(y + 1) * width + x];
+            let p22 = pixels[(y + 1) * width + (x + 1)];
+
+            PatchView {
+                pixels: [p00, p01, p02, p10, p11, p12, p20, p21, p22],
+                x,
+                y,
+            }
+        })
+    })
+}
 
 const FEATURE_PIXEL_BAG: u8 = 1;
 const FEATURE_HORIZONTAL: u8 = 2;
 const FEATURE_VERTICAL: u8 = 4;
 const FEATURE_DIAGONAL1: u8 = 8;
 const FEATURE_DIAGONAL2: u8 = 16;
+const FEATURE_LEARNED: u8 = 32;
+
 const ALL_FEATURES: u8 = FEATURE_PIXEL_BAG
     | FEATURE_HORIZONTAL
     | FEATURE_VERTICAL
@@ -39,6 +94,8 @@ pub struct MnistEncoder<const N: usize> {
     //edge_positive: BinaryHDV<N>,
     //edge_negative: BinaryHDV<N>,
     features: u8,
+    relative_patch_positions: [BinaryHDV<N>; 9],
+    learned_features: Option<Vec<BinaryHDV<N>>>,
 }
 
 impl<const N: usize> MnistEncoder<N> {
@@ -53,6 +110,9 @@ impl<const N: usize> MnistEncoder<N> {
     pub fn new(mut rng: &mut impl Rng) -> Self {
         //let positions = core::array::from_fn(|_| BinaryHDV::<N>::random(&mut rng));
         let positions = (0..784).map(|_| BinaryHDV::<N>::random(&mut rng)).collect();
+
+        let relative_patch_positions: [BinaryHDV<N>; 9] =
+            core::array::from_fn(|_| BinaryHDV::random(rng));
 
         let intensity_min = BinaryHDV::<N>::random(&mut rng);
         let intensity_max = BinaryHDV::<N>::random(&mut rng);
@@ -82,6 +142,8 @@ impl<const N: usize> MnistEncoder<N> {
             //edge_positive: BinaryHDV::<N>::random(&mut rng),
             //edge_negative: BinaryHDV::<N>::random(&mut rng),
             features: 0,
+            relative_patch_positions,
+            learned_features: None,
         }
     }
 
@@ -110,17 +172,40 @@ impl<const N: usize> MnistEncoder<N> {
         self
     }
 
-    pub fn with_all_features(mut self) -> Self {
-        self.features = ALL_FEATURES;
+    pub fn with_feature_learned(mut self) -> Self {
+        self.features |= FEATURE_LEARNED;
         self
     }
 
-    pub fn encode(&self, pixels: &[u8]) -> BinaryHDV<N> {
-        assert!(pixels.len() == 784);
+    pub fn with_feature_edges(mut self) -> Self {
+        self.features |=
+            FEATURE_HORIZONTAL | FEATURE_VERTICAL | FEATURE_DIAGONAL1 | FEATURE_DIAGONAL2;
+        self
+    }
+
+    pub fn train_on(mut self, images: &[Image]) -> Self {
+        self.features |= FEATURE_LEARNED;
+        self.learn_features_from_patches(images);
+        self
+    }
+
+    pub fn encode(&self, image: &Image) -> BinaryHDV<N> {
+        if self.features & FEATURE_LEARNED != 0 {
+            if self.features != FEATURE_LEARNED {
+                panic!("Can't mix learned and static features at the moment");
+            }
+            self.encode_learned(image)
+        } else {
+            self.encode_static(image)
+        }
+    }
+
+    fn encode_static(&self, image: &Image) -> BinaryHDV<N> {
         let mut accumulator = BinaryAccumulator::new();
         const EDGE_THRESHOLD: i16 = 0; // tunable
-        let width = 28;
-        let height = 28;
+        let pixels = image.as_u8_array();
+        let width = image.width();
+        let height = image.height();
 
         let features = if self.features != 0 {
             self.features
@@ -204,5 +289,105 @@ impl<const N: usize> MnistEncoder<N> {
         }
 
         accumulator.finalize()
+    }
+
+    fn learn_features_from_patches(&mut self, images: &[Image]) {
+        // Psuedo-code for creating patch vectors
+        //let mut all_patch_vectors = Vec::new();
+        //for image in training_images {
+        //    for patch in slide_3x3_window(image) {
+        //        let mut patch_accumulator = BinaryAccumulator::new();
+        //        for i in 0..9 {
+        //            let intensity = patch.pixel[i];
+        //            if intensity > PIXEL_THRESHOLD {
+        //                let pixel_hdv = relative_patch_positions[i].bind(&self.intensities[intensity]);
+        //                patch_accumulator.add(&pixel_hdv, 1.0);
+        //            }
+        //        }
+        //        all_patch_vectors.push(patch_accumulator.finalize());
+        //    }
+        //}
+
+        //Create a final BinaryAccumulator for the whole image.
+        //Slide a 3x3 window over the input image. For each patch at position (x, y):
+        //a. Encode the patch into a temporary hypervector, just like in the training step.
+        //b. Find which of the 64 learned features (centroids) is closest (minimum Hamming distance) to this patch's hypervector.
+        //c. Bind the image position vector with the closest feature vector: self.positions[y*28 + x].bind(&closest_feature_hdv).
+        //d. Add this resulting vector to the final accumulator.
+        //finalize() the accumulator to get the image's hypervector.
+
+        let mut all_patch_vectors = Vec::new();
+
+        for image in images {
+            for patch_view in slide_3x3_window(image) {
+                // Encode the patch's visual pattern
+                let mut patch_accumulator = BinaryAccumulator::new();
+                for (i, &intensity) in patch_view.pixels.iter().enumerate() {
+                    if intensity > 0 {
+                        // The pixel's representation within the patch
+                        let pixel_hdv = self.relative_patch_positions[i]
+                            .bind(&self.intensities[intensity as usize]);
+                        let weight = intensity as f64 / 255.0;
+                        patch_accumulator.add(&pixel_hdv, weight);
+                    }
+                }
+                if !patch_accumulator.is_empty() {
+                    all_patch_vectors.push(patch_accumulator.finalize());
+                }
+            }
+        }
+
+        let num_features = 32;
+        let max_iters = 100;
+        let verbose = true;
+        let mut kmeans_result = KMeans::new(&all_patch_vectors, num_features);
+        kmeans_result.train(&all_patch_vectors, max_iters, verbose);
+
+        self.learned_features = Some(kmeans_result.centroids);
+    }
+
+    fn encode_learned(&self, image: &Image) -> BinaryHDV<N> {
+        let mut image_accumulator = BinaryAccumulator::new();
+        let learned_features = self.learned_features.as_ref()
+        .expect("encode_learned called before learn_features_from_patches. Features have not been trained.");
+
+        for patch_view in slide_3x3_window(image) {
+            // Encode the current patch's pattern
+            let mut patch_accumulator = BinaryAccumulator::new();
+            //let mut total_patch_intensity = 0.0;
+            for (i, &intensity) in patch_view.pixels.iter().enumerate() {
+                if intensity > 0 {
+                    let pixel_hdv = self.relative_patch_positions[i]
+                        .bind(&self.intensities[intensity as usize]);
+                    let weight = intensity as f64 / 255.0;
+                    patch_accumulator.add(&pixel_hdv, weight);
+                    //total_patch_intensity += intensity as f64;
+                }
+            }
+
+            if patch_accumulator.is_empty() {
+                continue;
+            }
+
+            let current_patch_hdv = patch_accumulator.finalize();
+
+            // Find the closest learned feature
+            let (best_feature, dist) = learned_features
+                .iter()
+                .map(|feature| (feature, feature.hamming_distance(&current_patch_hdv)))
+                .min_by_key(|&(_feature, dist)| dist)
+                .unwrap(); // Using a map to get both the feature and the distance
+
+            let similarity = 1.0 - (dist as f64 / BinaryHDV::<N>::DIM as f64);
+            let final_weight = similarity.powi(2); //emphasise strong matches
+            //let final_weight = total_patch_intensity / (255.0 * 9.0); // Normalize total intensity
+
+            // Bind the feature with its ABSOLUTE position in the image
+            let absolute_position_idx = patch_view.y * 28 + patch_view.x;
+            let feature_at_position = self.positions[absolute_position_idx].bind(best_feature);
+
+            image_accumulator.add(&feature_at_position, final_weight);
+        }
+        image_accumulator.finalize()
     }
 }

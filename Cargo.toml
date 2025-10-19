@@ -7,9 +7,9 @@ edition = "2024"
 mersenne-twister-rs = {git = "https://github.com/jesper-olsen/mersenne-twister-rs"}
 hypervector = {git = "https://github.com/jesper-olsen/hypervector"}
 hopfield = {git = "https://github.com/jesper-olsen/hopfield"}
-rand = "0.9.2"
 mnist = { git = "https://github.com/jesper-olsen/mnist-rs.git" }
 rayon = "1.11.0"
+rand = "0.9.2"
 
 [features]
 #default = []     

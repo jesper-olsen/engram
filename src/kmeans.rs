@@ -3,7 +3,7 @@ use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
-use rayon::prelude::*;
+//use rayon::prelude::*;
 use std::borrow::Borrow;
 
 pub struct KMeans<const N: usize> {
@@ -48,7 +48,7 @@ impl<const N: usize> KMeans<N> {
         for i in 1..=max_iters {
             let total_dist = self.step(data);
             if verbose {
-                println!("Iteration {i}: total distance = {}", total_dist);
+                println!("Iteration {i:3}: total distance = {total_dist:11}");
             }
 
             // Convergence check
@@ -67,18 +67,18 @@ impl<const N: usize> KMeans<N> {
         let mut accumulators: Vec<BinaryAccumulator<N>> =
             (0..self.k).map(|_| BinaryAccumulator::new()).collect();
 
-        let total_dist: u32 = data
+        let total_dist: usize = data
             .iter()
             .map(|v| {
                 let (idx, dist) = self.nearest(v.borrow());
                 accumulators[idx as usize].add(v.borrow(), 1.0);
-                dist
+                dist as usize
             })
             .sum();
         self.centroids = accumulators.iter().map(|a| a.finalize()).collect();
         self.counts = accumulators.iter().map(|acc| acc.count as usize).collect();
 
-        total_dist as usize 
+        total_dist
     }
 
     //fn step<T: Borrow<BinaryHDV<N>> + Sync>(&mut self, data: &[T]) -> usize {
