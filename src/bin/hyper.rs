@@ -124,17 +124,13 @@ struct Trainer<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> Trainer<'a, N> {
-    pub fn new(data: &'a Mnist, rng: &mut impl Rng, learned: bool) -> Self {
+    pub fn new(data: &'a Mnist, rng: &mut impl Rng) -> Self {
 
-        let encoder = if learned {
-            MnistEncoder::<N>::new(rng)
-            .with_feature_learned()
-            .train_on(&data.train_images)
-        } else {
-            MnistEncoder::<N>::new(rng)
+        let encoder = MnistEncoder::<N>::new(rng)
             .with_feature_pixel_bag()
-            .with_feature_edges()
-        };
+            .with_feature_edges();
+            //.with_feature_learned()
+            //.train_on(&data.train_images, &data.train_labels);
 
         println!("Encoding training images (Dim {N}x64={})...", N * 64);
         let train_hvs: Vec<BinaryHDV<N>> = data
@@ -197,15 +193,14 @@ fn main() -> Result<(), MnistError> {
     const N: usize = 100;
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
-    let ensemble_size = 11;
+    let ensemble_size = 5;
     let mut ensemble = EnsembleModel::<N> {
         models: Vec::with_capacity(ensemble_size),
     };
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
     for mn in 1..=ensemble_size {
-        let learned = mn % 2 == 0;
-        let mut trainer = Trainer::new(&data, &mut rng, learned);
+        let mut trainer = Trainer::new(&data, &mut rng);
         let n_epochs = 2000;
 
         println!("Training model {mn}");

@@ -183,7 +183,7 @@ impl<const N: usize> MnistEncoder<N> {
         self
     }
 
-    pub fn train_on(mut self, images: &[Image]) -> Self {
+    pub fn train_on(mut self, images: &[Image], _labels: &[u8]) -> Self {
         self.features |= FEATURE_LEARNED;
         self.learn_features_from_patches(images);
         self
@@ -292,30 +292,6 @@ impl<const N: usize> MnistEncoder<N> {
     }
 
     fn learn_features_from_patches(&mut self, images: &[Image]) {
-        // Psuedo-code for creating patch vectors
-        //let mut all_patch_vectors = Vec::new();
-        //for image in training_images {
-        //    for patch in slide_3x3_window(image) {
-        //        let mut patch_accumulator = BinaryAccumulator::new();
-        //        for i in 0..9 {
-        //            let intensity = patch.pixel[i];
-        //            if intensity > PIXEL_THRESHOLD {
-        //                let pixel_hdv = relative_patch_positions[i].bind(&self.intensities[intensity]);
-        //                patch_accumulator.add(&pixel_hdv, 1.0);
-        //            }
-        //        }
-        //        all_patch_vectors.push(patch_accumulator.finalize());
-        //    }
-        //}
-
-        //Create a final BinaryAccumulator for the whole image.
-        //Slide a 3x3 window over the input image. For each patch at position (x, y):
-        //a. Encode the patch into a temporary hypervector, just like in the training step.
-        //b. Find which of the 64 learned features (centroids) is closest (minimum Hamming distance) to this patch's hypervector.
-        //c. Bind the image position vector with the closest feature vector: self.positions[y*28 + x].bind(&closest_feature_hdv).
-        //d. Add this resulting vector to the final accumulator.
-        //finalize() the accumulator to get the image's hypervector.
-
         let mut all_patch_vectors = Vec::new();
 
         for image in images {
