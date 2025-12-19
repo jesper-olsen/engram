@@ -4,6 +4,13 @@
 //! - Pixel bag-of-words (position × intensity)
 //! - Edge features (4 orientations via Sobel operators)
 
+mod classifier;
+mod ensemble;
+
+pub use classifier::{ImageClassifier, HdvClassifier, calc_accuracy};
+pub use ensemble::Ensemble;
+
+
 use crate::kmeans::KMeans;
 use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use hypervector::{Accumulator, HyperVector};

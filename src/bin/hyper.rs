@@ -1,4 +1,4 @@
-use engram::MnistEncoder;
+use engram::{MnistEncoder, ImageClassifier, HdvClassifier, Ensemble, calc_accuracy};
 use hypervector::{
     Accumulator,
     binary_hdv::{BinaryAccumulator, BinaryHDV},
@@ -18,18 +18,6 @@ struct Model<const N: usize> {
     encoder: MnistEncoder<N>,
 }
 
-struct EnsembleModel<const N: usize> {
-    models: Vec<Model<N>>,
-}
-
-pub trait ImageClassifier {
-    fn predict(&self, im: &Image) -> u8;
-}
-
-pub trait HdvClassifier<const N: usize>: ImageClassifier {
-    fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8;
-}
-
 impl<const N: usize> ImageClassifier for Model<N> {
     fn predict(&self, im: &Image) -> u8 {
         let h = self.encoder.encode(im);
@@ -47,44 +35,6 @@ impl<const N: usize> HdvClassifier<N> for Model<N> {
             .map(|(j, _)| j as u8)
             .unwrap_or(0)
     }
-}
-
-impl<const N: usize> ImageClassifier for EnsembleModel<N> {
-    fn predict(&self, im: &Image) -> u8 {
-        let mut votes = [0u32; NUM_CLASSES];
-        for model in &self.models {
-            votes[model.predict(im) as usize] += 1;
-        }
-        votes
-            .iter()
-            .enumerate()
-            .max_by_key(|&(_, &count)| count)
-            .map(|(digit, _)| digit as u8)
-            .unwrap_or(0)
-    }
-}
-
-fn calc_accuracy<M: ImageClassifier + Sync>(
-    test_images: &[Image],
-    test_labels: &[u8],
-    model: &M,
-) -> (usize, usize, f64) {
-    let correct: usize = test_images
-        .par_iter()
-        .zip(test_labels)
-        .filter(|&(im, &label)| {
-            let predicted = model.predict(im);
-            predicted == label
-        })
-        .count();
-
-    let total = test_images.len();
-    let acc = if total > 0 {
-        100.0 * correct as f64 / total as f64
-    } else {
-        0.0
-    };
-    (correct, total, acc)
 }
 
 struct Trainer<'a, const N: usize, R: Rng> {
@@ -202,9 +152,7 @@ fn main() -> Result<(), MnistError> {
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
     let ensemble_size = 5;
-    let mut ensemble = EnsembleModel::<N> {
-        models: Vec::with_capacity(ensemble_size),
-    };
+    let mut ensemble: Ensemble<Model<N>> = Ensemble::with_capacity(ensemble_size);
     let seed = 42;
     for mn in 1..=ensemble_size {
         let rng = StdRng::seed_from_u64(seed + mn as u64);
