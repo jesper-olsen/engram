@@ -1,14 +1,20 @@
 # Engram
 
-An exploration of MNIST classification using high-dimensional binary vectors ("hypervectors") with three different modeling approaches:
+Exploring MNIST digit classification with high-dimensional binary vectors (hypervectors). 
+All approaches share a common feature encoding that maps 28×28 images to N×64 bit vectors.
 
-1. Perceptron Training: An iterative learning model that achieves 97.89% test accuracy.
-2. K-Means Clustering: A Vector Quantization approach that achieves ~95% test accuracy.
-3. Hopfield Networks: A classic associative memory model that achieves ~88% test accuracy (95% on unambiguous results).
-4. Modern Hopfield Networks: Achieves 98.35%
+**Best Result**: 98.35% test accuracy (Modern Hopfield ensemble)
 
-The Perceptron and K-Means methods are fast and storage-efficient, while the Hopfield network is significantly slower. The primary finding is that the performance of these models is highly dependent on the richness of the feature encoding, with a combination of pixel and edge-based features proving most effective.
+## Models
 
+| Approach | Single Model | Ensemble (5) | Training |
+|----------|-------------|--------------|----------|
+| Perceptron | 95-97% | **97.89%** | Iterative error correction |
+| Modern Hopfield | 97-98% | **98.35%** | Greedy prototype selection |
+| K-Means (VQ) | 95.19% | — | Centroid clustering |
+| Classic Hopfield | 88.02% | — | Associative memory |
+
+**Key insight**: Feature encoding quality dominates model choice. A simple perceptron with rich features outperforms complex models with poor features.
 
 ## Getting Started
 
@@ -24,104 +30,116 @@ cd engram
 Run the models:
 
 * Perceptron: `cargo run --bin hyper --release`
-* Hopfield: `cargo run --bin hop --release`
+* Modern Hopfield: `cargo run --bin mhn --release`
+* Classic Hopfield: `cargo run --bin hop --release`
 * K-Means: `cargo run --bin cb --release`
 
+## Feature Encoding
 
-## Perceptron Trained Hypervectors
+All models use the same hypervector encoding:
 
-This model uses an iterative perceptron-style training rule to refine 10 prototype hypervectors (one for each digit).
+* **Pixel Bag**: Positional hypervectors bound (XORed) with intensity vectors
+* **Edge Features**: Sobel edge detection (horizontal, vertical, both diagonals)
+
+### Impact of Features (N=100, 6400 bits)
+
+| Features | Train Acc | Test Acc |
+|----------|-----------|----------|
+| Pixel Bag only | 97.65% | 92.60% |
+| Single edge direction | 85-91% | 79-88% |
+| **All features combined** | **98.57%** | **95.68%** |
+
+### Impact of Dimension (All Features)
+
+| N | Bits | Train Acc | Test Acc |
+|--:|-----:|----------:|---------:|
+| 100 | 6,400 | 98.57% | 95.68% |
+| 200 | 12,800 | 99.93% | 96.67% |
+| 400 | 25,600 | 99.98% | 96.87% |
+| 800 | 51,200 | 99.98% | 96.94% |
+| 1600 | 102,400 | 99.98% | 97.03% |
+
+*Diminishing returns beyond N=200; ensemble diversity is more effective than larger dimensions.*
+
+## Perceptron
+
+Iterative perceptron-style training refines 10 prototype hypervectors (one per digit).
 
 ```sh
-% cargo run --bin hyper --release
-
-Read 60000 training labels
-Encoding training images...
-Encoding test images...
-Epoch:   1 (Bundling)
-Epoch: 5000/5000 Training Accuracy: 59144/60000 = 98.57% Test: 95.68%
-Test Accuracy 9566/10000 = 95.66%
+cargo run --bin hyper --release
 ```
 
-### Feature Encoding
+### Ensemble Results (N=100)
 
-The final hypervector is a bundle of the following features. 
+| Model | Accuracy |
+|------:|---------:|
+| 1 | 97.12% |
+| 2 | 96.99% |
+| 3 | 96.98% |
+| 4 | 97.16% |
+| 5 | 97.15% |
+| **Ensemble** | **97.89%** |
 
-* Pixel Bag: Positional hypervectors bound (XORed) with intensity vectors.
-* Edge Features: Edge detection using 3x3 Sobel kernels for horizontal, vertical, and both diagonal directions.
+## Modern Hopfield
 
-The dimension of the vector is N * 64 bits.
+Energy-based associative memory with softmax attention over stored prototypes. Greedy prototype selection adds misclassified examples during training.
 
-|  N   |  Pixel_Bag | Horizontal | Vertical | Diagonal1 | Diagonal2    | Acc Train (%) | Acc Test (%)  | Epochs    | 
-|-----:|:----------:|:----------:|:--------:|:---------:|--------------:|-------------:|---------------|----------:|
-|  100 |    +       |  -         |  -       | -         | -             | 97.65        | 92.60         | 5000      | 
-|  100 |    -       |  +         |  -       | -         | -             | 91.86        | 85.81         | 5000      | 
-|  100 |    -       |  -         |  +       | -         | -             | 87.08        | 85.72         | 5000      | 
-|  100 |    -       |  -         |  -       | +         | -             | 85.55        | 79.74         | 5000      | 
-|  100 |    -       |  -         |  -       | -         | +             | 89.64        | 87.75         | 5000      | 
-|  100 |    +       |  +         |  +       | +         | +             | 98.57        | 95.68         | 5000      |
-|  200 |    +       |  +         |  +       | +         | +             | 99.93        | 96.67         | 5000      |
-|  400 |    +       |  +         |  +       | +         | +             | 99.98        | 96.87         | 5000      |
-|  800 |    +       |  +         |  +       | +         | +             | 99.98        | 96.94         | 5000      |
-| 1600 |    +       |  +         |  +       | +         | +             | 99.98        | 97.03         | 5000      |
+**Hyperparameters**: N=100 (6400 bits), β=60, up to 500 prototypes/class
 
-Train ensemble of 5 models (N=100) and combine by voting:
+```sh
+cargo run --bin hopfield --release
+```
 
-| Model | Accuracy (%) |
-|------:|-------------:|
-|   1   |  97.12       |
-|   2   |  96.99       |  
-|   3   |  96.98       |
-|   4   |  97.16       |
-|   5   |  97.15       |
-|  1..5 |  97.89       |
+### Ensemble Results (N=100, β=60)
 
-## Hopfield 
-This model uses a Hopfield network as a content-addressable memory. During training, the digit's class label is one-hot encoded and stored directly into the first 10 bits of the image's hypervector. At test time, these 10 bits are zeroed out and the network attempts to reconstruct the correct label through convergence.
+| Model | Accuracy |
+|------:|---------:|
+| 1 | 97.77% |
+| 2 | 97.81% |
+| 3 | 97.81% |
+| 4 | 98.13% |
+| 5 | 97.84% |
+| **Ensemble** | **98.35%** |
+
+## Classic Hopfield
+
+Content-addressable memory where the digit's class label is one-hot encoded into the first 10 bits of the hypervector. At test time, these bits are zeroed and the network reconstructs the label through convergence.
 
 ```sh
 cargo run --bin hop --release
 ```
 
-For N = 100 (6400 bits)
+**Results (N=100)**:
 
-```text
-ambiguous 294/10000 = 2.94%
-no result 457/10000 = 4.57%
-correct/total 8802/10000 = 88.02%
-correct/unambiguous 8802/9249 = 95.17%
-errors/unambiguous 447/9249 = 4.83%
-```
+| Metric | Value |
+|--------|------:|
+| Correct | 88.02% |
+| Correct (unambiguous) | 95.17% |
+| Ambiguous | 2.94% |
+| No result | 4.57% |
 
-## Modern Hopfield
+## K-Means (Vector Quantization)
 
-Train ensemble of 5 models (N=100, BETA=40) and combine by voting:
+K-Means creates K prototype vectors per digit class. Classification finds the nearest prototype across all classes.
 
-| Model | Accuracy (%) |
-|------:|-------------:|
-|   1   |  97.77       |
-|   2   |  97.81       |  
-|   3   |  97.81       |
-|   4   |  98.13       |
-|   5   |  97.84       |
-|  1..5 |  98.35       |
-
-
-## KMeans Clustering (Vector Quantisation)
-
-This method uses K-Means to create a "codebook" of K prototype vectors for each digit. Classification is done by finding the single closest prototype to a test image's hypervector across all 10 codebooks and choosing its class.
-
-```text
+```sh
 cargo run --bin cb --release
 ```
 
-```
-Read 60000 training labels
-Encoding training images...
-Encoding test images...
+| Centroids/Class | Accuracy |
+|----------------:|---------:|
+| 1 | 87.54% |
+| 5 | 92.67% |
+| 10 | 93.94% |
+| 15 | 94.94% |
+| 20 | **95.19%** |
 
---- Centroid-to-Centroid Distances ---
-(Total bits = 6400)
+<details>
+<summary>Centroid Distance Matrices</summary>
+
+**Centroid-to-Centroid Distances** (6400 bits):
+
+```
         0      1      2      3      4      5      6      7      8      9
 ------------------------------------------------------------------------
 0:      0   2272   1489   1491   1820   1376   1494   1931   1540   1816
@@ -134,8 +152,11 @@ Encoding test images...
 7:   1931   2057   1750   1730   1563   1737   2071      0   1611   1163
 8:   1540   1594   1303   1141   1402   1092   1644   1611      0   1344
 9:   1816   2092   1693   1585   1030   1428   1748   1163   1344      0
+```
 
---- Average Test Data Distance to Centroids ---
+**Average Test Distance to Centroids**:
+
+```
        Centroid ->
 True    0       1       2       3       4       5       6       7       8       9
 ----------------------------------------------------------------------------------
@@ -149,27 +170,11 @@ True    0       1       2       3       4       5       6       7       8       
  7 | 2448    2512    2355    2338    2282    2355    2515    1909    2285    2110
  8 | 2231    2290    2142    2070    2181    2059    2263    2250    1864    2140
  9 | 2352    2476    2289    2240    2006    2174    2325    2080    2136    1838
-
- Classify - codebook size
- 1: Accuracy 8754/10000 = 87.54%
- 2: Accuracy 9032/10000 = 90.32%
- 3: Accuracy 9123/10000 = 91.23%
- 4: Accuracy 9210/10000 = 92.10%
- 5: Accuracy 9267/10000 = 92.67%
- 6: Accuracy 9296/10000 = 92.96%
- 7: Accuracy 9326/10000 = 93.26%
- 8: Accuracy 9376/10000 = 93.76%
- 9: Accuracy 9417/10000 = 94.17%
-10: Accuracy 9394/10000 = 93.94%
-11: Accuracy 9410/10000 = 94.10%
-12: Accuracy 9424/10000 = 94.24%
-13: Accuracy 9451/10000 = 94.51%
-14: Accuracy 9446/10000 = 94.46%
-15: Accuracy 9494/10000 = 94.94%
-16: Accuracy 9471/10000 = 94.71%
-17: Accuracy 9468/10000 = 94.68%
-18: Accuracy 9503/10000 = 95.03%
-19: Accuracy 9497/10000 = 94.97%
-20: Accuracy 9519/10000 = 95.19%
 ```
 
+</details>
+
+## References
+
+* [Hyperdimensional Computing](https://en.wikipedia.org/wiki/Hyperdimensional_computing)
+* [Modern Hopfield Networks](https://arxiv.org/abs/2008.02217)
