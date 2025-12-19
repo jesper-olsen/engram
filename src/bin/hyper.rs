@@ -7,7 +7,7 @@ use mnist::{self, Image, Mnist, error::MnistError};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{rng, seq::SliceRandom};
+use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use std::io::Write;
 
@@ -22,77 +22,49 @@ struct EnsembleModel<const N: usize> {
     models: Vec<Model<N>>,
 }
 
-impl<const N: usize> Classifier<N> for Model<N> {
+pub trait ImageClassifier {
+    fn predict(&self, im: &Image) -> u8;
+}
+
+pub trait HdvClassifier<const N: usize>: ImageClassifier {
+    fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8;
+}
+
+impl<const N: usize> ImageClassifier for Model<N> {
     fn predict(&self, im: &Image) -> u8 {
         let h = self.encoder.encode(im);
         self.predict_hdv(&h)
     }
+}
 
+impl<const N: usize> HdvClassifier<N> for Model<N> {
     fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8 {
-        let mut min_dist = u32::MAX;
-        let mut best_model = 0;
-        for (j, model) in self.hdvs.iter().enumerate() {
-            let dist = model.hamming_distance(h);
-            if dist < min_dist {
-                min_dist = dist;
-                best_model = j;
-            }
-        }
-        best_model as u8
+        self.hdvs
+            .iter()
+            .enumerate()
+            .map(|(j, model)| (j, model.hamming_distance(h)))
+            .min_by_key(|&(_, dist)| dist)
+            .map(|(j, _)| j as u8)
+            .unwrap_or(0)
     }
 }
 
-impl<const N: usize> Classifier<N> for EnsembleModel<N> {
-    // add individual distances
-    //fn predict(&self, im: &Image) -> u8 {
-    //    let mut min_dist = usize::MAX;
-    //    let mut best_class = 0;
-    //    for i in 0..NUM_CLASSES {
-    //        let dist: usize = self
-    //            .models
-    //            .iter()
-    //            .map(|model| {
-    //                let h =model.encoder.encode(im.as_u8_array());
-    //                model.hdvs[i].hamming_distance(&h)
-    //            })
-    //            .sum();
-    //        if dist < min_dist {
-    //            min_dist = dist;
-    //            best_class = i;
-    //        }
-    //    }
-    //    best_class as u8
-    //}
-
+impl<const N: usize> ImageClassifier for EnsembleModel<N> {
     fn predict(&self, im: &Image) -> u8 {
-        let mut votes = [0u8; NUM_CLASSES];
-
-        // Get a prediction from each model in the ensemble
-        for model in self.models.iter() {
-            let prediction = model.predict(im);
-            votes[prediction as usize] += 1;
+        let mut votes = [0u32; NUM_CLASSES];
+        for model in &self.models {
+            votes[model.predict(im) as usize] += 1;
         }
-
-        // Find the digit that received the most votes
         votes
             .iter()
             .enumerate()
             .max_by_key(|&(_, &count)| count)
             .map(|(digit, _)| digit as u8)
-            .unwrap_or(0) // Default to 0 in case of an empty ensemble
-    }
-
-    fn predict_hdv(&self, _: &BinaryHDV<N>) -> u8 {
-        unimplemented!("Not implemented for ensemble model")
+            .unwrap_or(0)
     }
 }
 
-pub trait Classifier<const N: usize> {
-    fn predict(&self, h: &Image) -> u8;
-    fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8;
-}
-
-fn calc_accuracy<const N: usize, M: Classifier<N> + Sync>(
+fn calc_accuracy<M: ImageClassifier + Sync>(
     test_images: &[Image],
     test_labels: &[u8],
     model: &M,
@@ -115,22 +87,22 @@ fn calc_accuracy<const N: usize, M: Classifier<N> + Sync>(
     (correct, total, acc)
 }
 
-struct Trainer<'a, const N: usize> {
+struct Trainer<'a, const N: usize, R: Rng> {
     accumulators: [BinaryAccumulator<N>; NUM_CLASSES],
     model: Model<N>,
     train_hvs: Vec<BinaryHDV<N>>,
     train_labels: &'a [u8],
     indices: Vec<usize>,
+    rng: R,
 }
 
-impl<'a, const N: usize> Trainer<'a, N> {
-    pub fn new(data: &'a Mnist, rng: &mut impl Rng) -> Self {
-
-        let encoder = MnistEncoder::<N>::new(rng)
+impl<'a, const N: usize, R: Rng> Trainer<'a, N, R> {
+    pub fn new(data: &'a Mnist, mut rng: R) -> Self {
+        let encoder = MnistEncoder::<N>::new(&mut rng)
             .with_feature_pixel_bag()
             .with_feature_edges();
-            //.with_feature_learned()
-            //.train_on(&data.train_images, &data.train_labels);
+        //.with_feature_learned()
+        //.train_on(&data.train_images, &data.train_labels);
 
         println!("Encoding training images (Dim {N}x64={})...", N * 64);
         let train_hvs: Vec<BinaryHDV<N>> = data
@@ -161,31 +133,67 @@ impl<'a, const N: usize> Trainer<'a, N> {
             accumulators,
             model,
             indices,
+            rng,
         }
     }
 
     // one training epoch
-    fn step(&mut self, epoch: usize) -> (usize, usize) {
-        self.indices.shuffle(&mut rng());
+    //fn step(&mut self, epoch: usize) -> (usize, usize) {
+    //    self.indices.shuffle(&mut self.rng);
 
-        let mut errors = 0;
+    //    let mut errors = 0;
+    //    let lr = 1.0 / (epoch as f64).sqrt();
+
+    //    for &idx in self.indices.iter() {
+    //        let img_hdv = &self.train_hvs[idx];
+    //        let true_label = self.train_labels[idx];
+    //        let predicted = self.model.predict_hdv(img_hdv);
+    //        if predicted != true_label {
+    //            errors += 1;
+    //            self.accumulators[true_label as usize].add(img_hdv, lr);
+    //            self.accumulators[predicted as usize].add(img_hdv, -lr);
+    //        }
+    //    }
+    //    self.model.hdvs = core::array::from_fn(|i| self.accumulators[i].finalize());
+
+    //    let total = self.train_hvs.len();
+    //    let correct = total - errors;
+    //    (correct, errors)
+    //}
+
+    fn step(&mut self, epoch: usize) -> (usize, usize) {
+        self.indices.shuffle(&mut self.rng);
         let lr = 1.0 / (epoch as f64).sqrt();
 
-        for &idx in self.indices.iter() {
+        // Parallel: collect all misclassifications
+        let errors: Vec<_> = self
+            .indices
+            .par_iter()
+            .filter_map(|&idx| {
+                let img_hdv = &self.train_hvs[idx];
+                let true_label = self.train_labels[idx];
+                let predicted = self.model.predict_hdv(img_hdv);
+                if predicted != true_label {
+                    Some((idx, true_label, predicted))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let error_count = errors.len();
+
+        // Sequential: apply weight updates (accumulators aren't thread-safe)
+        for (idx, true_label, predicted) in errors {
             let img_hdv = &self.train_hvs[idx];
-            let true_label = self.train_labels[idx];
-            let predicted = self.model.predict_hdv(img_hdv);
-            if predicted != true_label {
-                errors += 1;
-                self.accumulators[true_label as usize].add(img_hdv, lr);
-                self.accumulators[predicted as usize].add(img_hdv, -lr);
-            }
+            self.accumulators[true_label as usize].add(img_hdv, lr);
+            self.accumulators[predicted as usize].add(img_hdv, -lr);
         }
+
         self.model.hdvs = core::array::from_fn(|i| self.accumulators[i].finalize());
 
         let total = self.train_hvs.len();
-        let correct = total - errors;
-        (correct, errors)
+        (total - error_count, error_count)
     }
 }
 
@@ -198,9 +206,9 @@ fn main() -> Result<(), MnistError> {
         models: Vec::with_capacity(ensemble_size),
     };
     let seed = 42;
-    let mut rng = StdRng::seed_from_u64(seed);
     for mn in 1..=ensemble_size {
-        let mut trainer = Trainer::new(&data, &mut rng);
+        let rng = StdRng::seed_from_u64(seed + mn as u64);
+        let mut trainer = Trainer::new(&data, rng);
         let n_epochs = 2000;
 
         println!("Training model {mn}");
@@ -216,6 +224,7 @@ fn main() -> Result<(), MnistError> {
                 break;
             }
         }
+
         let (correct, total, acc) =
             calc_accuracy(&data.test_images, &data.test_labels, &trainer.model);
         println!("\nTest Accuracy: {correct:5}/{total} = {acc:.2}%\n");

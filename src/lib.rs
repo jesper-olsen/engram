@@ -194,7 +194,8 @@ impl<const N: usize> MnistEncoder<N> {
             if self.features != FEATURE_LEARNED {
                 panic!("Can't mix learned and static features at the moment");
             }
-            self.encode_learned(image)
+            //self.encode_learned(image)
+            self.encode_learned_att(image)
         } else {
             self.encode_static(image)
         }
@@ -364,6 +365,95 @@ impl<const N: usize> MnistEncoder<N> {
 
             image_accumulator.add(&feature_at_position, final_weight);
         }
+        image_accumulator.finalize()
+    }
+
+    fn encode_learned_att(&self, image: &Image) -> BinaryHDV<N> {
+        let learned_features = self
+            .learned_features
+            .as_ref()
+            .expect("encode_learned called before features were trained.");
+
+        // --- PHASE 1: TOKENIZATION ---
+        // Extract patches and find their nearest semantic centroid.
+        struct Token<const N: usize> {
+            feature: BinaryHDV<N>,
+            pos_idx: usize,
+            weight: f64,
+        }
+
+        let mut tokens: Vec<Token<N>> = Vec::new();
+
+        for patch_view in slide_3x3_window(image) {
+            let mut patch_accum = BinaryAccumulator::new();
+            for (i, &intensity) in patch_view.pixels.iter().enumerate() {
+                if intensity > 0 {
+                    let pixel_hdv = self.relative_patch_positions[i]
+                        .bind(&self.intensities[intensity as usize]);
+                    patch_accum.add(&pixel_hdv, intensity as f64 / 255.0);
+                }
+            }
+
+            if patch_accum.is_empty() {
+                continue;
+            }
+            let current_patch_hdv = patch_accum.finalize();
+
+            // Find closest learned feature
+            let (best_feature, dist) = learned_features
+                .iter()
+                .map(|f| (f, f.hamming_distance(&current_patch_hdv)))
+                .min_by_key(|&(_, d)| d)
+                .unwrap();
+
+            let similarity = 1.0 - (dist as f64 / BinaryHDV::<N>::DIM as f64);
+
+            tokens.push(Token {
+                feature: *best_feature,
+                pos_idx: patch_view.y * 28 + patch_view.x,
+                weight: similarity.powi(2),
+            });
+        }
+
+        // --- PHASE 2: SEMANTIC SELF-ATTENTION ---
+        // Patches update their semantic meaning by looking at all other patches.
+        // This is done BEFORE binding to positions so that similarity is measurable.
+        let mut attended_features = Vec::with_capacity(tokens.len());
+
+        for i in 0..tokens.len() {
+            let mut context_accum = BinaryAccumulator::new();
+            let query = &tokens[i].feature;
+
+            for token in &tokens {
+                // We compare Query to Key (both are unbound features)
+                let dist = query.hamming_distance(&token.feature);
+                let score = 1.0 - (dist as f64 / BinaryHDV::<N>::DIM as f64);
+
+                // "Softmax" surrogate: only attend to semantically similar patches
+                if score > 0.75 {
+                    context_accum.add(&token.feature, score.powi(4));
+                }
+            }
+
+            // Update feature with its global context
+            let context_vec = context_accum.finalize();
+            let h = BinaryHDV::bundle(&[query, &context_vec]);
+            attended_features.push(h);
+        }
+
+        // --- PHASE 3: SPATIAL BINDING & AGGREGATION ---
+        // Now we XOR the context-aware features with their coordinates.
+        let mut image_accumulator = BinaryAccumulator::new();
+
+        for (i, token) in tokens.iter().enumerate() {
+            let context_aware_feature = &attended_features[i];
+
+            // Structural Bind: Position XOR (Feature + Context)
+            let structural_hdv = self.positions[token.pos_idx].bind(context_aware_feature);
+
+            image_accumulator.add(&structural_hdv, token.weight);
+        }
+
         image_accumulator.finalize()
     }
 }
