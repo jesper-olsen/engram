@@ -5,6 +5,7 @@ An exploration of MNIST classification using high-dimensional binary vectors ("h
 1. Perceptron Training: An iterative learning model that achieves 97.89% test accuracy.
 2. K-Means Clustering: A Vector Quantization approach that achieves ~95% test accuracy.
 3. Hopfield Networks: A classic associative memory model that achieves ~88% test accuracy (95% on unambiguous results).
+4. Modern Hopfield Networks: Achieves 98.35%
 
 The Perceptron and K-Means methods are fast and storage-efficient, while the Hopfield network is significantly slower. The primary finding is that the performance of these models is highly dependent on the richness of the feature encoding, with a combination of pixel and edge-based features proving most effective.
 
@@ -91,6 +92,20 @@ correct/total 8802/10000 = 88.02%
 correct/unambiguous 8802/9249 = 95.17%
 errors/unambiguous 447/9249 = 4.83%
 ```
+
+## Modern Hopfield
+
+Train ensemble of 5 models (N=100, BETA=40) and combine by voting:
+
+| Model | Accuracy (%) |
+|------:|-------------:|
+|   1   |  97.77       |
+|   2   |  97.81       |  
+|   3   |  97.81       |
+|   4   |  98.13       |
+|   5   |  97.84       |
+|  1..5 |  98.35       |
+
 
 ## KMeans Clustering (Vector Quantisation)
 

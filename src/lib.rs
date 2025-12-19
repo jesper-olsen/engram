@@ -7,9 +7,8 @@
 mod classifier;
 mod ensemble;
 
-pub use classifier::{ImageClassifier, HdvClassifier, calc_accuracy};
+pub use classifier::{HdvClassifier, ImageClassifier, calc_accuracy};
 pub use ensemble::Ensemble;
-
 
 use crate::kmeans::KMeans;
 use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};

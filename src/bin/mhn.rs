@@ -1,76 +1,40 @@
-use engram::MnistEncoder;
+use engram::{Ensemble, HdvClassifier, ImageClassifier, MnistEncoder, calc_accuracy};
 use hypervector::binary_hdv::BinaryHDV;
-use mnist::{self, Image, Mnist, error::MnistError};
+use mnist::{Image, Mnist, error::MnistError};
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 use std::io::Write;
-use std::sync::Arc; // Use Arc to share the encoder
+use std::sync::Arc;
 
 const N: usize = 100;
-// 100 prototypes x 10 classes = 1000 vectors.
-// This is still tiny (KB) compared to a Neural Net, but gives high resolution.
-//const PROTOTYPES_PER_CLASS: usize = 100;
-//const BETA: f64 = 30.0;
-
-//const PROTOTYPES_PER_CLASS: usize = 250;
 const PROTOTYPES_PER_CLASS: usize = 500;
-const BETA: f64 = 60.0;
+//const BETA: f64 = 60.0;
+const BETA: f64 = 40.0;
+const NUM_CLASSES: usize = 10;
 
-struct ModernHopfield {
-    memories: Vec<(u8, BinaryHDV<N>)>,
-    // Share the specific encoder instance used for training
+pub struct ModernHopfield {
+    memories: Vec<(u8, BinaryHDV<N>)>,  // label, HDV
     encoder: Arc<MnistEncoder<N>>,
 }
 
 impl ModernHopfield {
-    fn new(encoder: Arc<MnistEncoder<N>>) -> Self {
+    pub fn new(encoder: Arc<MnistEncoder<N>>) -> Self {
         ModernHopfield {
             memories: Vec::new(),
             encoder,
         }
     }
 
-    fn predict(&self, im: &Image) -> u8 {
-        let h = self.encoder.encode(im);
-        self.predict_hdv(&h)
-    }
-
-    fn predict_hdv(&self, query: &BinaryHDV<N>) -> u8 {
-        let mut class_energy = [0.0f64; 10];
-        // Pre-calculate dimension constant
-        let dim = (N * 64) as f64;
-
-        for (label, memory) in &self.memories {
-            let dist = query.hamming_distance(memory);
-
-            // Similarity: 1.0 (Identical) to 0.0 (Inverse)
-            // Note: Random vectors will have sim ~0.5
-            let sim = 1.0 - (dist as f64 / dim);
-
-            // Softmax / Energy term
-            let energy = (BETA * sim).exp();
-            class_energy[*label as usize] += energy;
-        }
-
-        class_energy
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i as u8)
-            .unwrap_or(0)
-    }
-
-    fn train(&mut self, data: &Mnist, train_hvs: &[BinaryHDV<N>]) {
+    pub fn train(&mut self, data: &Mnist, train_hvs: &[BinaryHDV<N>]) {
         println!(
-            "Training with Greedy Prototype Selection (Target: {}/class)...",
-            PROTOTYPES_PER_CLASS
+            "Training with Greedy Prototype Selection (Target: {PROTOTYPES_PER_CLASS}/class)..."
         );
 
         let mut indices: Vec<usize> = (0..train_hvs.len()).collect();
-        let mut counts = [0usize; 10];
+        let mut counts = [0usize; NUM_CLASSES];
 
-        // 1. Bootstrap
+        // Bootstrap
         indices.shuffle(&mut rand::rng());
         for &i in &indices {
             let lbl = data.train_labels[i];
@@ -83,10 +47,8 @@ impl ModernHopfield {
             }
         }
 
-        // 2. Greedy Loop
-        let mut loop_count = 0;
-        loop {
-            loop_count += 1;
+        // Greedy Loop
+        for loop_count in 0.. {
             let mut added_this_round = 0;
             let mut errors = 0;
 
@@ -94,32 +56,24 @@ impl ModernHopfield {
 
             for &i in &indices {
                 let lbl = data.train_labels[i];
-                let is_full = counts[lbl as usize] >= PROTOTYPES_PER_CLASS;
-
-                // Check prediction with current memory bank
                 let pred = self.predict_hdv(&train_hvs[i]);
 
                 if pred != lbl {
                     errors += 1;
-                    // Only add if we have "storage" slots left for this class
-                    if !is_full {
-                        self.memories.push((lbl, train_hvs[i].clone()));
+                    if counts[lbl as usize] < PROTOTYPES_PER_CLASS {
+                        self.memories.push((lbl, train_hvs[i]));
                         counts[lbl as usize] += 1;
                         added_this_round += 1;
                     }
                 }
             }
 
-            let total_memories = self.memories.len();
             print!(
-                "Round {}: Added {} prototypes. Total Mem: {}. Training Errors: {}   \r",
-                loop_count, added_this_round, total_memories, errors
+                "Round {loop_count}: Added {added_this_round} prototypes. Total: {total}. Errors: {errors}   \r",
+                total = self.memories.len(),
             );
             std::io::stdout().flush().unwrap();
 
-            // Exit conditions:
-            // 1. We didn't get any errors (Perfect training accuracy)
-            // 2. We got errors, but couldn't add any new prototypes (Memory banks full)
             if added_this_round == 0 || errors == 0 {
                 break;
             }
@@ -128,46 +82,75 @@ impl ModernHopfield {
     }
 }
 
+impl ImageClassifier for ModernHopfield {
+    fn predict(&self, im: &Image) -> u8 {
+        let h = self.encoder.encode(im);
+        self.predict_hdv(&h)
+    }
+}
+
+impl HdvClassifier<N> for ModernHopfield {
+    fn predict_hdv(&self, query: &BinaryHDV<N>) -> u8 {
+        let dim = (N * 64) as f64;
+
+        let mut class_energy = [0.0f64; NUM_CLASSES];
+        for (label, memory) in &self.memories {
+            let dist = query.hamming_distance(memory);
+            let sim = 1.0 - (dist as f64 / dim);
+            let energy = (BETA * sim).exp();
+            class_energy[*label as usize] += energy;
+        }
+
+        class_energy
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _)| i as u8)
+            .unwrap_or(0)
+    }
+}
+
 fn main() -> Result<(), MnistError> {
     let data = Mnist::load("MNIST")?;
-    let mut rng = StdRng::seed_from_u64(42);
+    let ensemble_size = 5;
 
-    // 1. Create the Master Encoder
-    let encoder = Arc::new(
-        MnistEncoder::<N>::new(&mut rng)
-            .with_feature_pixel_bag()
-            .with_feature_edges(),
-    );
+    let mut ensemble: Ensemble<ModernHopfield> = Ensemble::with_capacity(ensemble_size);
 
-    println!("Encoding training data...");
-    let train_hvs: Vec<BinaryHDV<N>> = data
-        .train_images
-        .par_iter()
-        .map(|im| encoder.encode(im))
-        .collect();
+    for mn in 1..=ensemble_size {
+        let mut rng = StdRng::seed_from_u64(42 + mn as u64);
 
-    // 2. Pass the ARC pointer to the model
-    let mut model = ModernHopfield::new(encoder.clone());
+        let encoder = Arc::new(
+            MnistEncoder::<N>::new(&mut rng)
+                .with_feature_pixel_bag()
+                .with_feature_edges(),
+        );
 
-    // Train
-    model.train(&data, &train_hvs);
+        println!("\nEncoding training data for model {mn}...");
+        let train_hvs: Vec<BinaryHDV<N>> = data
+            .train_images
+            .par_iter()
+            .map(|im| encoder.encode(im))
+            .collect();
 
-    // Test
-    println!("Testing...");
-    let correct = data
-        .test_images
-        .par_iter()
-        .zip(&data.test_labels)
-        .map(|(im, &lbl)| if model.predict(im) == lbl { 1 } else { 0 })
-        .sum::<usize>();
+        let mut model = ModernHopfield::new(encoder);
+        model.train(&data, &train_hvs);
 
-    let total = data.test_images.len();
-    println!(
-        "Accuracy: {:.2}% ({}/{})",
-        100.0 * correct as f64 / total as f64,
-        correct,
-        total
-    );
+        // Test individual model
+        let (correct, total, acc) = calc_accuracy(&data.test_images, &data.test_labels, &model);
+        println!("Model {mn} Accuracy: {correct}/{total} = {acc:.2}%");
+
+        ensemble.push(model);
+
+        // Test ensemble
+        if ensemble.len() >= 2 {
+            let (correct, total, acc) =
+                calc_accuracy(&data.test_images, &data.test_labels, &ensemble);
+            println!(
+                "Ensemble of {} Accuracy: {correct}/{total} = {acc:.2}%",
+                ensemble.len()
+            );
+        }
+    }
 
     Ok(())
 }

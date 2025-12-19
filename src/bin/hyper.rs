@@ -1,4 +1,4 @@
-use engram::{MnistEncoder, ImageClassifier, HdvClassifier, Ensemble, calc_accuracy};
+use engram::{Ensemble, HdvClassifier, ImageClassifier, MnistEncoder, calc_accuracy};
 use hypervector::{
     Accumulator,
     binary_hdv::{BinaryAccumulator, BinaryHDV},
@@ -111,6 +111,7 @@ impl<'a, const N: usize, R: Rng> Trainer<'a, N, R> {
     //    (correct, errors)
     //}
 
+    // one training epoch - parallel
     fn step(&mut self, epoch: usize) -> (usize, usize) {
         self.indices.shuffle(&mut self.rng);
         let lr = 1.0 / (epoch as f64).sqrt();
