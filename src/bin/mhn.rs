@@ -14,7 +14,7 @@ const BETA: f64 = 40.0;
 const NUM_CLASSES: usize = 10;
 
 pub struct ModernHopfield {
-    memories: Vec<(u8, BinaryHDV<N>)>,  // label, HDV
+    memories: Vec<(u8, BinaryHDV<N>)>, // label, HDV
     encoder: Arc<MnistEncoder<N>>,
 }
 
