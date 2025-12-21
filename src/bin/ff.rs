@@ -88,18 +88,10 @@ struct Layer {
 
 fn ffnormrows(a: &mut Mat) {
     // Makes every 'a' have a sum of squared activities that averages 1 per neuron.
-    a.data.chunks_mut(a.cols).for_each(|row| {
+    a.data.par_chunks_mut(a.cols).for_each(|row| {
         let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
-        //let mut sum_sq = 0.0;
-        //for &x in row.iter() {
-        //    sum_sq += x * x;
-        //}
         let scale = 1.0 / (TINY + (sum_sq / row.len() as f32).sqrt());
-        //row.iter_mut().for_each(|x| *x *= scale);
-        //for x in row.iter_mut() {
-        for x in row {
-            *x *= scale;
-        }
+        row.iter_mut().for_each(|x| *x *= scale);
     });
 }
 
@@ -139,15 +131,16 @@ fn train_epoch(
         let mut targets = Mat::zeros(BATCH_SIZE, NUMLAB);
         for i in 0..BATCH_SIZE {
             let idx = indices[b * BATCH_SIZE + i];
-            for j in 0..784 {
-                data.data[i * 784 + j] = images[idx][j];
-            }
+            //for j in 0..784 {
+            //    data.data[i * 784 + j] = images[idx][j];
+            //}
+            data.data[i*mnist::NPIXELS..].copy_from_slice(&images[idx]);
             let lab = labels[idx] as usize;
             targets.data[i * NUMLAB + lab] = 1.0;
             for j in 0..NUMLAB {
-                data.data[i * 784 + j] = 0.0;
+                data.data[i * mnist::NPIXELS + j] = 0.0;
             }
-            data.data[i * 784 + lab] = LABELSTRENGTH;
+            data.data[i * mnist::NPIXELS + lab] = LABELSTRENGTH;
         }
 
         // --- POSITIVE PASS ---
@@ -318,6 +311,7 @@ fn train_epoch(
 }
 
 fn predict(model: &[Layer], image: &[f32]) -> usize {
+    // energy test - pic max energy
     // 1. Prepare neutral input (average label strength)
     let mut input = Mat::zeros(1, image.len());
     input.data.copy_from_slice(image);
