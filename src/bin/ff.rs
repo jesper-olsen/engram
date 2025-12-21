@@ -9,7 +9,7 @@ const LAMBDAMEAN: f32 = 0.03;
 const TEMP: f32 = 1.0;
 const LABELSTRENGTH: f32 = 1.0;
 const MINLEVELSUP: usize = 2;
-const MINLEVELENERGY: usize = 2;
+//const MINLEVELENERGY: usize = 2;
 const WC: f32 = 0.002;
 const SUPWC: f32 = 0.003;
 const EPSILON: f32 = 0.01;
@@ -87,13 +87,17 @@ struct Layer {
 }
 
 fn ffnormrows(a: &mut Mat) {
+    // Makes every 'a' have a sum of squared activities that averages 1 per neuron.
     a.data.chunks_mut(a.cols).for_each(|row| {
-        let mut sum_sq = 0.0;
-        for &x in row.iter() {
-            sum_sq += x * x;
-        }
+        let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
+        //let mut sum_sq = 0.0;
+        //for &x in row.iter() {
+        //    sum_sq += x * x;
+        //}
         let scale = 1.0 / (TINY + (sum_sq / row.len() as f32).sqrt());
-        for x in row.iter_mut() {
+        //row.iter_mut().for_each(|x| *x *= scale);
+        //for x in row.iter_mut() {
+        for x in row {
             *x *= scale;
         }
     });
@@ -114,7 +118,7 @@ fn layer_io(vin: &Mat, layer: &Layer) -> (Mat, Mat) {
 
 fn train_epoch(
     model: &mut [Layer],
-    images: &[Vec<f32>],
+    images: &[[f32; mnist::NPIXELS]],
     labels: &[u8],
     epoch: usize,
     rng: &mut StdRng,
@@ -315,10 +319,8 @@ fn train_epoch(
 
 fn predict(model: &[Layer], image: &[f32]) -> usize {
     // 1. Prepare neutral input (average label strength)
-    let mut input = Mat::zeros(1, 784);
-    for j in 0..784 {
-        input.data[j] = image[j];
-    }
+    let mut input = Mat::zeros(1, image.len());
+    input.data.copy_from_slice(image);
     for j in 0..NUMLAB {
         input.data[j] = LABELSTRENGTH / NUMLAB as f32;
     }
@@ -334,7 +336,7 @@ fn predict(model: &[Layer], image: &[f32]) -> usize {
     }
 
     // 3. Accumulate scores from supweights
-    let mut scores = vec![0.0f32; NUMLAB];
+    let mut scores = [0.0f32; NUMLAB];
     for l in MINLEVELSUP - 1..model.len() {
         if let Some(sw) = &model[l].supweights {
             let contrib = softmax_norms[l + 1].matmul(sw);
@@ -351,6 +353,15 @@ fn predict(model: &[Layer], image: &[f32]) -> usize {
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .map(|(index, _)| index)
         .unwrap()
+}
+
+fn fftest(model: &[Layer], images: &[[f32; mnist::NPIXELS]], labels: &[u8]) -> (usize, usize) {
+    let errors = images
+        .par_iter()
+        .zip(labels)
+        .filter(|&(img, &label)| predict(model, img) != label as usize)
+        .count();
+    (errors, images.len())
 }
 
 fn main() -> Result<(), MnistError> {
@@ -373,35 +384,36 @@ fn main() -> Result<(), MnistError> {
         })
         .collect();
 
-    let train_imgs: Vec<Vec<f32>> = data
+    let train_imgs: Vec<[f32; mnist::NPIXELS]> = data
         .train_images
         .iter()
-        .map(|img| img.as_f32_array().to_vec())
+        .map(|img| img.as_f32_array())
         .collect();
-    let test_imgs: Vec<Vec<f32>> = data
+    let test_imgs: Vec<[f32; mnist::NPIXELS]> = data
         .test_images
         .iter()
-        .map(|img| img.as_f32_array().to_vec())
+        .map(|img| img.as_f32_array())
         .collect();
 
     println!("Training Forward-Forward Model...");
     for epoch in 0..MAX_EPOCH {
-        let cost = train_epoch(&mut model, &train_imgs, &data.train_labels, epoch, &mut rng);
-
-        // Test accuracy on a 2000-image subset for speed
-        let test_subset = 2000;
-        let correct = test_imgs
-            .par_iter()
-            .zip(&data.test_labels)
-            .take(test_subset)
-            .filter(|&(ref img, &label)| predict(&model, img) == label as usize)
-            .count();
-
-        let acc = (correct as f32 / test_subset as f32) * 100.0;
+        const RTRAIN: std::ops::Range<usize> = 0..50000;
+        const RVAL: std::ops::Range<usize> = 50000..60000;
+        let cost = train_epoch(
+            &mut model,
+            &train_imgs[RTRAIN],
+            &data.train_labels[RTRAIN],
+            epoch,
+            &mut rng,
+        );
+        let (errors0, total0) = fftest(&model, &train_imgs[RTRAIN], &data.train_labels[RTRAIN]);
+        let (errors1, total1) = fftest(&model, &train_imgs[RVAL], &data.train_labels[RVAL]);
         println!(
-            "Epoch {:3} | Cost: {:8.4} | Test Acc (subset): {:.2}%",
-            epoch, cost, acc
+            "Epoch {epoch:3} | Cost: {cost:8.4} | Errors; Train: ({errors0}/{total0}), Valid: ({errors1}/{total1})"
         );
     }
+
+    let (errors, total) = fftest(&model, &test_imgs, &data.test_labels);
+    println!("Test Errors: ({errors}/{total})");
     Ok(())
 }
