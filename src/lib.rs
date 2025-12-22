@@ -329,7 +329,7 @@ impl<const N: usize> MnistEncoder<N> {
         self.learned_features = Some(kmeans_result.centroids);
     }
 
-    fn encode_learned(&self, image: &Image) -> BinaryHDV<N> {
+    fn _encode_learned(&self, image: &Image) -> BinaryHDV<N> {
         let mut image_accumulator = BinaryAccumulator::new();
         let learned_features = self.learned_features.as_ref()
         .expect("encode_learned called before learn_features_from_patches. Features have not been trained.");

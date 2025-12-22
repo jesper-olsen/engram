@@ -17,7 +17,8 @@ const EPSILONSUP: f32 = 0.1;
 const DELAY: f32 = 0.9;
 const LAYERS: [usize; 4] = [784, 1000, 1000, 1000];
 const BATCH_SIZE: usize = 100;
-const MAX_EPOCH: usize = 125;
+//const MAX_EPOCH: usize = 125;
+const MAX_EPOCH: usize = 25;
 
 #[derive(Clone)]
 struct Mat {
@@ -48,14 +49,22 @@ impl Mat {
 
     fn matmul(&self, other: &Mat) -> Mat {
         let mut res = Mat::zeros(self.rows, other.cols);
+        let a_data = &self.data;
+        let b_data = &other.data;
+        
         res.data
             .par_chunks_mut(other.cols)
             .enumerate()
-            .for_each(|(i, row)| {
+            .for_each(|(i, res_row)| {
+                let a_row_offset = i * self.cols;
                 for k in 0..self.cols {
-                    let a_val = self.data[i * self.cols + k];
+                    let a_val = a_data[a_row_offset + k];
+                    let b_row_offset = k * other.cols;
+                    // This inner loop is now a contiguous slice, 
+                    // allowing the compiler to use SIMD (AVX/SSE) instructions.
+                    let b_row = &b_data[b_row_offset..b_row_offset + other.cols];
                     for j in 0..other.cols {
-                        row[j] += a_val * other.data[k * other.cols + j];
+                        res_row[j] += a_val * b_row[j];
                     }
                 }
             });
@@ -63,6 +72,7 @@ impl Mat {
     }
 
     fn t_matmul(&self, other: &Mat) -> Mat {
+        //TODO - may be faster to just do transpose, then call matmul
         let mut res = Mat::zeros(self.cols, other.cols);
         for i in 0..self.cols {
             for k in 0..self.rows {
@@ -126,15 +136,16 @@ fn train_epoch(
     let mut indices: Vec<usize> = (0..images.len()).collect();
     indices.shuffle(rng);
 
+    let mut lab_data = Mat::zeros(BATCH_SIZE, mnist::NPIXELS);
+    let mut n_st = Mat::zeros(BATCH_SIZE, mnist::NPIXELS);
+
     for b in 0..num_batches {
-        let mut data = Mat::zeros(BATCH_SIZE, 784);
+        let mut data = Mat::zeros(BATCH_SIZE, mnist::NPIXELS);
         let mut targets = Mat::zeros(BATCH_SIZE, NUMLAB);
         for i in 0..BATCH_SIZE {
             let idx = indices[b * BATCH_SIZE + i];
-            //for j in 0..784 {
-            //    data.data[i * 784 + j] = images[idx][j];
-            //}
-            data.data[i*mnist::NPIXELS..].copy_from_slice(&images[idx]);
+            let r = i * mnist::NPIXELS..(i + 1) * mnist::NPIXELS;
+            data.data[r].copy_from_slice(&images[idx]);
             let lab = labels[idx] as usize;
             targets.data[i * NUMLAB + lab] = 1.0;
             for j in 0..NUMLAB {
@@ -165,13 +176,20 @@ fn train_epoch(
         }
 
         // --- SOFTMAX PREDICTOR & NEGATIVE LABEL SELECTION ---
-        let mut lab_data = data.clone();
-        for i in 0..BATCH_SIZE {
-            for j in 0..NUMLAB {
-                lab_data.data[i * 784 + j] = LABELSTRENGTH / NUMLAB as f32;
-            }
-        }
-        let mut n_st = lab_data;
+        //let mut lab_data = data.clone();
+        //for i in 0..BATCH_SIZE {
+        //    for j in 0..NUMLAB {
+        //        lab_data.data[i * 784 + j] = LABELSTRENGTH / NUMLAB as f32;
+        //    }
+        //}
+        lab_data.data.copy_from_slice(&data.data);
+        lab_data
+            .data
+            .chunks_exact_mut(784)
+            .for_each(|img| img[..NUMLAB].fill(LABELSTRENGTH / NUMLAB as f32));
+
+        n_st.data.copy_from_slice(&lab_data.data);
+        //let mut n_st = lab_data;
         ffnormrows(&mut n_st);
         let mut softmax_norms = vec![n_st.clone()];
         for l in 0..model.len() {
@@ -400,11 +418,15 @@ fn main() -> Result<(), MnistError> {
             epoch,
             &mut rng,
         );
-        let (errors0, total0) = fftest(&model, &train_imgs[RTRAIN], &data.train_labels[RTRAIN]);
-        let (errors1, total1) = fftest(&model, &train_imgs[RVAL], &data.train_labels[RVAL]);
-        println!(
-            "Epoch {epoch:3} | Cost: {cost:8.4} | Errors; Train: ({errors0}/{total0}), Valid: ({errors1}/{total1})"
-        );
+        if (epoch > 0 && epoch % 5 == 0) || epoch == MAX_EPOCH {
+            let (errors0, total0) = fftest(&model, &train_imgs[RTRAIN], &data.train_labels[RTRAIN]);
+            let (errors1, total1) = fftest(&model, &train_imgs[RVAL], &data.train_labels[RVAL]);
+            println!(
+                "Epoch {epoch:3} | Cost: {cost:8.4} | Errors; Train: ({errors0}/{total0}), Valid: ({errors1}/{total1})"
+            );
+        } else {
+            println!("Epoch {epoch:3} | Cost: {cost:8.4}");
+        }
     }
 
     let (errors, total) = fftest(&model, &test_imgs, &data.test_labels);
