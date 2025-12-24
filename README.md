@@ -8,7 +8,7 @@ Exploring MNIST digit classification with high-dimensional binary vectors and bi
 
 | Approach | Single Model | Ensemble (5) | Training |
 |----------|-------------|--------------|----------|
-| Forward-Forward | 98.76% | — | Local Goodness Optimization |
+| Forward-Forward | 98.83% | — | Local Goodness Optimization |
 | Perceptron | 95-97% | **97.89%** | Iterative error correction |
 | Modern Hopfield | 97-98% | **98.35%** | Greedy prototype selection |
 | K-Means (VQ) | 95.19% | — | Centroid clustering |
@@ -40,6 +40,8 @@ Note: This model achieves near-state-of-the-art performance for MNIST without ev
 ## Forward-Forward (FF)
 Based on Geoffrey Hinton's Forward-Forward algorithm. Instead of backpropagation, each layer is trained to distinguish between "positive" data (real MNIST digits with correct labels) and "negative" data (digits with incorrect labels).
 
+### Key Techniques
+
 * Architecture: 4 layers [784, 1000, 1000, 1000] Key Techniques:
 
 * Local Objective: Layers maximize the "goodness" (sum of squared activations) for positive data and minimize it for negative data.
@@ -48,9 +50,13 @@ Based on Geoffrey Hinton's Forward-Forward algorithm. Instead of backpropagation
 
 * Supervised Head: A softmax layer sits on top of the normalized hidden states to provide the final classification.
 
-```bash
-cargo run --bin ff --release
-```
+### Results (125 Epochs)
+
+|               | Train Acc            | Test Acc            |
+|--------------:|---------------------:|---------------------|
+| Train on 50k  | 99.99% (59999/60000) | 98.72% (9872/10000) |
+| Train on 60k  | 99.99% (59994/60000) | 98.83% (9883/10000) |
+
 
 ## Feature Encoding
 
@@ -58,6 +64,8 @@ All the following models use the same hypervector encoding:
 
 * **Pixel Bag**: Positional hypervectors bound (XORed) with intensity vectors
 * **Edge Features**: Sobel edge detection (horizontal, vertical, both diagonals)
+
+All are trained on the full 60k training set.
 
 ### Impact of Features (N=100, 6400 bits)
 

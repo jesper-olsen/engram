@@ -471,7 +471,7 @@ fn main() -> Result<(), MnistError> {
             &mut rng,
             &mut ws,
         );
-        if (epoch > 0 && epoch % 5 == 0) || epoch == MAX_EPOCH {
+        if (epoch > 0 && epoch % 5 == 0) || epoch == MAX_EPOCH-1 {
             let (errors0, total0) = fftest(&model, &train_imgs[RTRAIN], &data.train_labels[RTRAIN]);
             let (errors1, total1) = fftest(&model, &train_imgs[RVAL], &data.train_labels[RVAL]);
             println!(
