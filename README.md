@@ -1,20 +1,20 @@
 # Engram
 
-Exploring MNIST digit classification with high-dimensional binary vectors (hypervectors). 
-All approaches share a common feature encoding that maps 28×28 images to N×64 bit vectors.
+Exploring MNIST digit classification with high-dimensional binary vectors and biologically inspired learning.
 
-**Best Result**: 98.35% test accuracy (Modern Hopfield ensemble)
+**Best Result**: 98.76% test accuracy (Forward-Forward Algorithm)
 
 ## Models
 
 | Approach | Single Model | Ensemble (5) | Training |
 |----------|-------------|--------------|----------|
+| Forward-Forward | 98.76% | — | Local Goodness Optimization |
 | Perceptron | 95-97% | **97.89%** | Iterative error correction |
 | Modern Hopfield | 97-98% | **98.35%** | Greedy prototype selection |
 | K-Means (VQ) | 95.19% | — | Centroid clustering |
 | Classic Hopfield | 88.02% | — | Associative memory |
 
-**Key insight**: Feature encoding quality dominates model choice. A simple perceptron with rich features outperforms complex models with poor features.
+**Key insight**: While feature encoding dominates simple models, local learning rules like Forward-Forward can extract deep hierarchical features without requiring backpropagation.
 
 ## Getting Started
 
@@ -29,14 +29,32 @@ cd engram
 
 Run the models:
 
+* Forward-Forward: `cargo run --bin ff --release`
 * Perceptron: `cargo run --bin hyper --release`
 * Modern Hopfield: `cargo run --bin mhn --release`
 * Classic Hopfield: `cargo run --bin hop --release`
 * K-Means: `cargo run --bin cb --release`
 
+Note: This model achieves near-state-of-the-art performance for MNIST without ever calculating a global gradient or using a chain rule.
+
+## Forward-Forward (FF)
+Based on Geoffrey Hinton's Forward-Forward algorithm. Instead of backpropagation, each layer is trained to distinguish between "positive" data (real MNIST digits with correct labels) and "negative" data (digits with incorrect labels).
+
+* Architecture: 4 layers [784, 1000, 1000, 1000] Key Techniques:
+
+* Local Objective: Layers maximize the "goodness" (sum of squared activations) for positive data and minimize it for negative data.
+
+* Regularization: 10% Dropout and Weight Decay are used to prevent the model from memorizing training noise.
+
+* Supervised Head: A softmax layer sits on top of the normalized hidden states to provide the final classification.
+
+```bash
+cargo run --bin ff --release
+```
+
 ## Feature Encoding
 
-All models use the same hypervector encoding:
+All the following models use the same hypervector encoding:
 
 * **Pixel Bag**: Positional hypervectors bound (XORed) with intensity vectors
 * **Edge Features**: Sobel edge detection (horizontal, vertical, both diagonals)

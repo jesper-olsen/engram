@@ -4,6 +4,8 @@ use rand::prelude::*;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
+const DROPOUT: f32 = 0.10; // 10% of neurons
+
 const TINY: f32 = 1e-20;
 const NUMLAB: usize = 10;
 const LAMBDAMEAN: f32 = 0.03;
@@ -11,8 +13,7 @@ const TEMP: f32 = 1.0;
 const LABELSTRENGTH: f32 = 1.0;
 const MINLEVELSUP: usize = 2;
 //const MINLEVELENERGY: usize = 2;
-//const WC: f32 = 0.002;
-const WC: f32 = 0.003;
+const WC: f32 = 0.002;
 const SUPWC: f32 = 0.003;
 const EPSILON: f32 = 0.01;
 const EPSILONSUP: f32 = 0.1;
@@ -108,14 +109,27 @@ impl BatchWorkspace {
     }
 }
 
-fn layer_io_into(vin: &Mat, layer: &Layer, st: &mut Mat, nst: &mut Mat) {
+fn layer_io_into(vin: &Mat, layer: &Layer, st: &mut Mat, nst: &mut Mat, orng: Option<&mut StdRng>) {
     vin.matmul_into(&layer.weights, st);
 
-    st.data.par_chunks_mut(st.cols).for_each(|row| {
+    let cols = st.cols;
+    st.data.par_chunks_mut(cols).for_each(|row| {
         for (val, &bias) in row.iter_mut().zip(layer.biases.iter()) {
             *val = (*val + bias).max(0.0);
         }
     });
+
+    // dropout - for training only
+    if let Some(rng) = orng {
+        for val in st.data.iter_mut() {
+            if rng.random::<f32>() < DROPOUT {
+                *val = 0.0;
+            } else {
+                // Rescale to keep the expected sum of squares (Goodness) consistent
+                *val /= (1.0 - DROPOUT).sqrt();
+            }
+        }
+    }
 
     nst.data.copy_from_slice(&st.data);
     nst.norm_rows();
@@ -163,7 +177,14 @@ fn train_epoch(
         for l in 0..model.len() {
             // Split the slice so we can borrow l and l+1 simultaneously
             let (prev_nst, next_nst) = ws.pos_nst.split_at_mut(l + 1);
-            layer_io_into(&prev_nst[l], &model[l], &mut ws.pos_st[l], &mut next_nst[0]);
+            layer_io_into(
+                &prev_nst[l],
+                &model[l],
+                &mut ws.pos_st[l],
+                &mut next_nst[0],
+                Some(rng),
+            );
+            //layer_io_into(&prev_nst[l], &model[l], &mut ws.pos_st[l], &mut next_nst[0]);
 
             let cols = ws.pos_st[l].cols;
             for r in 0..BATCH_SIZE {
@@ -189,6 +210,7 @@ fn train_epoch(
                 &model[l],
                 &mut ws.softmax_st[l],
                 &mut next_nst[0],
+                Some(rng),
             );
         }
 
@@ -287,9 +309,14 @@ fn train_epoch(
             ws.pos_nst[l].t_matmul_into(&ws.pos_dc_din[l], &mut ws.pos_dw[l]);
 
             // Neg pass
-            //layer_io_into(&ws.neg_nst[l], &model[l], &mut ws.neg_st[l], &mut ws.neg_nst[l+1]);
             let (prev_nst, next_nst) = ws.neg_nst.split_at_mut(l + 1);
-            layer_io_into(&prev_nst[l], &model[l], &mut ws.neg_st[l], &mut next_nst[0]);
+            layer_io_into(
+                &prev_nst[l],
+                &model[l],
+                &mut ws.neg_st[l],
+                &mut next_nst[0],
+                Some(rng),
+            );
 
             for r in 0..BATCH_SIZE {
                 let row = &ws.neg_st[l].data[r * cols..(r + 1) * cols];
@@ -342,7 +369,13 @@ fn predict(model: &[Layer], image: &[f32], ws: &mut BatchWorkspace) -> usize {
     // 3. Forward Pass: Traverse layers
     for l in 0..model.len() {
         let (prev_nst, next_nst) = ws.pos_nst.split_at_mut(l + 1);
-        layer_io_into(&prev_nst[l], &model[l], &mut ws.pos_st[l], &mut next_nst[0]);
+        layer_io_into(
+            &prev_nst[l],
+            &model[l],
+            &mut ws.pos_st[l],
+            &mut next_nst[0],
+            None,
+        );
     }
 
     // 4. Sum scores from all supervised layers
