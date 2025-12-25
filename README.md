@@ -38,24 +38,28 @@ Run the models:
 Note: This model achieves near-state-of-the-art performance for MNIST without ever calculating a global gradient or using a chain rule.
 
 ## Forward-Forward (FF)
+
 Based on Geoffrey Hinton's Forward-Forward algorithm. Instead of backpropagation, each layer is trained to distinguish between "positive" data (real MNIST digits with correct labels) and "negative" data (digits with incorrect labels).
 
 ### Key Techniques
 
-* Architecture: 4 layers [784, 1000, 1000, 1000] Key Techniques:
+* **Architecture**: 4 layers [784, 1000, 1000, 1000] using Rectified Linear Units (ReLU).
 
-* Local Objective: Layers maximize the "goodness" (sum of squared activations) for positive data and minimize it for negative data.
+* **Local Objective**: Each layer independently maximises "goodness" (sum of squared activations) for positive data and minimises it for negative data, avoiding the need for a global backward pass.
 
-* Regularization: 10% Dropout and Weight Decay are used to prevent the model from memorizing training noise.
+* **Symetric Augmentation**: Training samples are augmented by randomly shifting images up/down and left/right by one pixel. 
 
-* Supervised Head: A softmax layer sits on top of the normalized hidden states to provide the final classification.
+* **Regularization**: 10% Dropout and Weight Decay (0.002) to prevent the model from memorising specific training pixels.
 
-### Results (125 Epochs)
+* **Supervised Head**: A softmax layer sits on top of the normalised hidden states, accumulating scores from all supervised layers to provide the final classification.
 
-|               | Train Acc            | Test Acc            |
-|--------------:|---------------------:|---------------------|
-| Train on 50k  | 99.99% (59999/60000) | 98.72% (9872/10000) |
-| Train on 60k  | 99.99% (59994/60000) | 98.83% (9883/10000) |
+### Results 
+
+|               | Train Accuracy | Test Accuracy | Errors Test | Epochs
+|--------------:|---------------:|--------------:|------------:|-------:
+| Train on 50k  | 99.82%         | 99.23%        | 77 / 10,000 | 200
+| Train on 60k  | 99.79%         | 99.29%        | 71 / 10,000 | 200
+
 
 
 ## Feature Encoding

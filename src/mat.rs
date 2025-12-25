@@ -1,6 +1,7 @@
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
+use std::io::{Read, Result, Write};
 
 //const USE_PARALLEL: bool = false;
 const USE_PARALLEL: bool = true;
@@ -32,14 +33,37 @@ impl Mat {
         Mat { rows, cols, data }
     }
 
-    //pub fn norm_rows(&mut self) {
-    //    const TINY: f32 = 1e-20;
-    //    self.data.par_chunks_mut(self.cols).for_each(|row| {
-    //        let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
-    //        let scale = 1.0 / (TINY + (sum_sq / row.len() as f32).sqrt());
-    //        row.iter_mut().for_each(|x| *x *= scale);
-    //    });
-    //}
+    pub fn write_raw<W: Write>(&self, writer: &mut W) -> Result<()> {
+        writer.write_all(&(self.rows as u64).to_le_bytes())?;
+        writer.write_all(&(self.cols as u64).to_le_bytes())?;
+        // Convert f32 slice to raw bytes safely
+        let bytes: &[u8] = unsafe {
+            std::slice::from_raw_parts(
+                self.data.as_ptr() as *const u8,
+                self.data.len() * std::mem::size_of::<f32>(),
+            )
+        };
+        writer.write_all(bytes)?;
+        Ok(())
+    }
+
+    pub fn read_raw<R: Read>(reader: &mut R) -> Result<Self> {
+        let mut b8 = [0u8; 8];
+        reader.read_exact(&mut b8)?;
+        let rows = u64::from_le_bytes(b8) as usize;
+        reader.read_exact(&mut b8)?;
+        let cols = u64::from_le_bytes(b8) as usize;
+
+        let mut data = vec![0.0f32; rows * cols];
+        let bytes: &mut [u8] = unsafe {
+            std::slice::from_raw_parts_mut(
+                data.as_mut_ptr() as *mut u8,
+                data.len() * std::mem::size_of::<f32>(),
+            )
+        };
+        reader.read_exact(bytes)?;
+        Ok(Mat { rows, cols, data })
+    }
 
     pub fn norm_rows(&mut self) {
         const TINY: f32 = 1e-20;

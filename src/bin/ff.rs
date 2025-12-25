@@ -3,8 +3,11 @@ use mnist::{Mnist, error::MnistError};
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read, Write};
 
 const DROPOUT: f32 = 0.10; // 10% of neurons
+const USE_AUGMENTATION: bool = true;
 
 const TINY: f32 = 1e-20;
 const NUMLAB: usize = 10;
@@ -20,8 +23,8 @@ const EPSILONSUP: f32 = 0.1;
 const DELAY: f32 = 0.9;
 const LAYERS: [usize; 4] = [784, 1000, 1000, 1000];
 const BATCH_SIZE: usize = 100;
-const MAX_EPOCH: usize = 125;
-//const MAX_EPOCH: usize = 25;
+//const MAX_EPOCH: usize = 125;
+const MAX_EPOCH: usize = 200;
 
 struct Layer {
     weights: Mat,
@@ -135,6 +138,29 @@ fn layer_io_into(vin: &Mat, layer: &Layer, st: &mut Mat, nst: &mut Mat, orng: Op
     nst.norm_rows();
 }
 
+fn apply_random_shift(
+    src_image: &[f32; mnist::NPIXELS],
+    target_buffer: &mut [f32],
+    rng: &mut StdRng,
+) {
+    let shift_x = rng.random_range(-1..=1);
+    let shift_y = rng.random_range(-1..=1);
+
+    for y in 0..28 {
+        for x in 0..28 {
+            let src_x = x as i32 + shift_x;
+            let src_y = y as i32 + shift_y;
+
+            let val = if src_x >= 0 && src_x < 28 && src_y >= 0 && src_y < 28 {
+                src_image[(src_y * 28 + src_x) as usize]
+            } else {
+                0.0
+            };
+            target_buffer[y * 28 + x] = val;
+        }
+    }
+}
+
 fn train_epoch(
     model: &mut [Layer],
     images: &[[f32; mnist::NPIXELS]],
@@ -159,7 +185,16 @@ fn train_epoch(
         for i in 0..BATCH_SIZE {
             let idx = indices[b * BATCH_SIZE + i];
             let start = i * mnist::NPIXELS;
-            ws.data.data[start..start + mnist::NPIXELS].copy_from_slice(&images[idx]);
+
+            if USE_AUGMENTATION {
+                apply_random_shift(
+                    &images[idx],
+                    &mut ws.data.data[start..start + mnist::NPIXELS],
+                    rng,
+                );
+            } else {
+                ws.data.data[start..start + mnist::NPIXELS].copy_from_slice(&images[idx]);
+            }
 
             let lab = labels[idx] as usize;
             ws.targets.data[i * NUMLAB..(i + 1) * NUMLAB].fill(0.0);
@@ -171,7 +206,6 @@ fn train_epoch(
 
         // --- 2. POSITIVE PASS ---
         ws.pos_nst[0].data.copy_from_slice(&ws.data.data);
-        //ffnormrows(&mut ws.pos_nst[0]);
         ws.pos_nst[0].norm_rows();
 
         for l in 0..model.len() {
@@ -259,6 +293,7 @@ fn train_epoch(
         }
 
         // --- 4. NEGATIVE PASS ---
+
         for r in 0..BATCH_SIZE {
             let mut probs = [0.0f32; NUMLAB];
             let start_idx = r * NUMLAB;
@@ -280,9 +315,12 @@ fn train_epoch(
                     break;
                 }
             }
+
             let start = r * 784;
-            ws.neg_data.data[start..start + 784]
-                .copy_from_slice(&images[indices[b * BATCH_SIZE + r]]);
+            // Copy the already shifted/prepared image from pos buffer to neg buffer
+            ws.neg_data.data[start..start + 784].copy_from_slice(&ws.data.data[start..start + 784]);
+
+            // Overwrite with a WRONG label for the negative pass
             ws.neg_data.data[start..start + NUMLAB].fill(0.0);
             ws.neg_data.data[start + sel] = LABELSTRENGTH;
         }
@@ -399,15 +437,6 @@ fn predict(model: &[Layer], image: &[f32], ws: &mut BatchWorkspace) -> usize {
         .unwrap()
 }
 
-//fn fftest(model: &[Layer], images: &[[f32; mnist::NPIXELS]], labels: &[u8]) -> (usize, usize) {
-//    let errors = images
-//        .par_iter()
-//        .zip(labels)
-//        .filter(|&(img, &label)| predict(model, img) != label as usize)
-//        .count();
-//    (errors, images.len())
-//}
-
 fn fftest(model: &[Layer], images: &[[f32; mnist::NPIXELS]], labels: &[u8]) -> (usize, usize) {
     let errors: usize = images
         .par_iter()
@@ -426,7 +455,79 @@ fn fftest(model: &[Layer], images: &[[f32; mnist::NPIXELS]], labels: &[u8]) -> (
     (errors, images.len())
 }
 
-fn main() -> Result<(), MnistError> {
+fn save_model(model: &[Layer], path: &str) -> std::io::Result<()> {
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+
+    // Write number of layers
+    writer.write_all(&(model.len() as u64).to_le_bytes())?;
+
+    for layer in model {
+        // 1. Weights
+        layer.weights.write_raw(&mut writer)?;
+
+        // 2. Biases (Vec<f32>)
+        writer.write_all(&(layer.biases.len() as u64).to_le_bytes())?;
+        let b_bytes: &[u8] = unsafe {
+            std::slice::from_raw_parts(layer.biases.as_ptr() as *const u8, layer.biases.len() * 4)
+        };
+        writer.write_all(b_bytes)?;
+
+        // 3. Supervised Weights
+        if let Some(sw) = &layer.supweights {
+            writer.write_all(&[1u8])?; // Flag for Some
+            sw.write_raw(&mut writer)?;
+        } else {
+            writer.write_all(&[0u8])?; // Flag for None
+        }
+    }
+    Ok(())
+}
+
+fn load_model(path: &str) -> std::io::Result<Vec<Layer>> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+
+    let mut b8 = [0u8; 8];
+    reader.read_exact(&mut b8)?;
+    let num_layers = u64::from_le_bytes(b8) as usize;
+
+    let mut model = Vec::with_capacity(num_layers);
+
+    for _ in 0..num_layers {
+        let weights = Mat::read_raw(&mut reader)?;
+
+        reader.read_exact(&mut b8)?;
+        let b_len = u64::from_le_bytes(b8) as usize;
+        let mut biases = vec![0.0f32; b_len];
+        let b_bytes: &mut [u8] =
+            unsafe { std::slice::from_raw_parts_mut(biases.as_mut_ptr() as *mut u8, b_len * 4) };
+        reader.read_exact(b_bytes)?;
+
+        let mut opt_flag = [0u8; 1];
+        reader.read_exact(&mut opt_flag)?;
+        let supweights = if opt_flag[0] == 1 {
+            Some(Mat::read_raw(&mut reader)?)
+        } else {
+            None
+        };
+
+        // Reconstruct gradients and states as zeros
+        let (rows, cols) = (weights.rows, weights.cols);
+        model.push(Layer {
+            weights_grad: Mat::zeros(rows, cols),
+            biases_grad: vec![0.0; cols],
+            supweights_grad: supweights.as_ref().map(|sw| Mat::zeros(sw.rows, sw.cols)),
+            mean_states: vec![0.5; cols],
+            weights,
+            biases,
+            supweights,
+        });
+    }
+    Ok(model)
+}
+
+fn train_model() -> Result<(), MnistError> {
     let data = Mnist::load("MNIST")?;
     let mut rng = StdRng::seed_from_u64(1234);
 
@@ -437,7 +538,7 @@ fn main() -> Result<(), MnistError> {
             Layer {
                 weights: Mat::new_randn(fanin, fanout, 1.0 / (fanin as f32).sqrt(), &mut rng),
                 biases: vec![0.0; fanout],
-                supweights: Some(Mat::zeros(fanout, NUMLAB)), // Simplified for all layers
+                supweights: Some(Mat::zeros(fanout, NUMLAB)),
                 weights_grad: Mat::zeros(fanin, fanout),
                 biases_grad: vec![0.0; fanout],
                 supweights_grad: Some(Mat::zeros(fanout, NUMLAB)),
@@ -471,7 +572,7 @@ fn main() -> Result<(), MnistError> {
             &mut rng,
             &mut ws,
         );
-        if (epoch > 0 && epoch % 5 == 0) || epoch == MAX_EPOCH-1 {
+        if (epoch > 0 && epoch % 5 == 0) || epoch == MAX_EPOCH - 1 {
             let (errors0, total0) = fftest(&model, &train_imgs[RTRAIN], &data.train_labels[RTRAIN]);
             let (errors1, total1) = fftest(&model, &train_imgs[RVAL], &data.train_labels[RVAL]);
             println!(
@@ -484,5 +585,35 @@ fn main() -> Result<(), MnistError> {
 
     let (errors, total) = fftest(&model, &test_imgs, &data.test_labels);
     println!("Test Errors: ({errors}/{total})");
+
+    let fname = "model_ff.bin";
+    println!("Saving model to: {fname}");
+    save_model(&model, fname)?;
+
+    Ok(())
+}
+
+fn main() -> Result<(), MnistError> {
+    train_model()?;
+
+    if false {
+        let data = Mnist::load("MNIST")?;
+        let train_imgs: Vec<[f32; mnist::NPIXELS]> = data
+            .train_images
+            .iter()
+            .map(|img| img.as_f32_array())
+            .collect();
+        let test_imgs: Vec<[f32; mnist::NPIXELS]> = data
+            .test_images
+            .iter()
+            .map(|img| img.as_f32_array())
+            .collect();
+
+        let fname = "model_ff.bin";
+        let model = load_model(fname)?;
+        let (errors, total) = fftest(&model, &test_imgs, &data.test_labels);
+        println!("Test Errors: ({errors}/{total})");
+    }
+
     Ok(())
 }
