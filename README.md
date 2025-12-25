@@ -8,7 +8,7 @@ Exploring MNIST digit classification with high-dimensional binary vectors and bi
 
 | Approach | Single Model | Ensemble (5) | Training |
 |----------|-------------|--------------|----------|
-| Forward-Forward | 98.83% | — | Local Goodness Optimization |
+| Forward-Forward | 99.29% | — | Local Goodness Optimization |
 | Perceptron | 95-97% | **97.89%** | Iterative error correction |
 | Modern Hopfield | 97-98% | **98.35%** | Greedy prototype selection |
 | K-Means (VQ) | 95.19% | — | Centroid clustering |
