@@ -593,6 +593,51 @@ fn train_model() -> Result<(), MnistError> {
     Ok(())
 }
 
+fn calc_confusions(model: &[Layer], images: &[[f32; 784]], labels: &[u8]) -> [[usize; 10]; 10] {
+    let mut matrix = [[0usize; 10]; 10];
+    let mut ws = BatchWorkspace::new(&LAYERS, 1);
+
+    println!("Calculating confusion matrix...");
+    for (img, &label) in images.iter().zip(labels) {
+        let pred = predict(model, img, &mut ws);
+        matrix[label as usize][pred] += 1;
+    }
+    return matrix;
+}
+
+fn print_confusions(matrix: &[[usize; 10]; 10]) {
+    println!("\nConfusion Matrix (Actual vs Predicted):");
+    println!("");
+
+    // Header
+    print!("Actual |");
+    for i in 0..10 {
+        print!("  P{}  ", i);
+    }
+    println!("\n-------|------------------------------------------------------------");
+
+    for i in 0..10 {
+        // Row label
+        print!("  A{}   |", i);
+
+        for j in 0..10 {
+            let count = matrix[i][j];
+            if i == j {
+                // Correct: Just the number
+                print!("{:>5} ", count);
+            } else if count > 0 {
+                // Error: Just the number
+                print!("{:>5} ", count);
+            } else {
+                // Zero: Just a dot, padded to match the 5-space width
+                print!("{:>5} ", ".");
+            }
+        }
+        println!("");
+    }
+    println!("--------------------------------------------------------------------");
+}
+
 fn main() -> Result<(), MnistError> {
     train_model()?;
 
@@ -613,6 +658,12 @@ fn main() -> Result<(), MnistError> {
         let model = load_model(fname)?;
         let (errors, total) = fftest(&model, &test_imgs, &data.test_labels);
         println!("Test Errors: ({errors}/{total})");
+
+        //let (errors, total) = fftest(&model, &train_imgs, &data.train_labels);
+        //println!("Train Errors: ({errors}/{total})");
+
+        let matrix = calc_confusions(&model, &test_imgs, &data.test_labels);
+        print_confusions(&matrix);
     }
 
     Ok(())
