@@ -9,7 +9,8 @@ use std::io::{BufReader, BufWriter, Read, Write};
 const DROPOUT: f32 = 0.10; // 10% of neurons
 const USE_AUGMENTATION: bool = true;
 
-const TINY: f32 = 1e-20;
+//const TINY: f32 = 1e-20;
+const TINY: f32 = 1e-10;
 const NUMLAB: usize = 10;
 const LAMBDAMEAN: f32 = 0.03;
 const TEMP: f32 = 1.0;
@@ -219,12 +220,17 @@ fn train_epoch(
                 Some(rng),
             );
             //layer_io_into(&prev_nst[l], &model[l], &mut ws.pos_st[l], &mut next_nst[0]);
+            for x in ws.pos_st[l].data.iter_mut() {
+                *x = x.clamp(-1e10, 1e10); // A "soft" ceiling well below Infinity
+            }
 
             let cols = ws.pos_st[l].cols;
             for r in 0..BATCH_SIZE {
                 let row = &ws.pos_st[l].data[r * cols..(r + 1) * cols];
                 let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
-                ws.pos_probs[l][r] = 1.0 / (1.0 + (-(sum_sq - cols as f32) / TEMP).exp());
+                //ws.pos_probs[l][r] = 1.0 / (1.0 + (-(sum_sq - cols as f32) / TEMP).exp());
+                let raw_exp = -(sum_sq - cols as f32) / TEMP;
+                ws.pos_probs[l][r] = 1.0 / (1.0 + raw_exp.clamp(-80.0, 80.0).exp());
             }
         }
 
@@ -256,6 +262,11 @@ fn train_epoch(
                     ws.labin.data[i] += ws.sup_contrib.data[i];
                 }
             }
+        }
+
+        for x in ws.labin.data.iter_mut() {
+            if x.is_nan() { *x = 0.0; }
+            *x = x.clamp(-1e10, 1e10);
         }
 
         // Softmax & Cost Calculation
@@ -341,7 +352,10 @@ fn train_epoch(
                     model[l].mean_states[c] =
                         0.9 * model[l].mean_states[c] + 0.1 * (st / BATCH_SIZE as f32);
                     let reg = LAMBDAMEAN * (layer_mean - model[l].mean_states[c]);
-                    ws.pos_dc_din[l].data[r * cols + c] = (1.0 - p) * st + reg;
+                    let mut grad_val = (1.0 - p) * st;
+                    if grad_val.is_nan() { grad_val = 0.0; } // NaN shield
+                    ws.pos_dc_din[l].data[r * cols + c] = grad_val + reg;
+                    //ws.pos_dc_din[l].data[r * cols + c] = (1.0 - p) * st + reg;
                 }
             }
             ws.pos_nst[l].t_matmul_into(&ws.pos_dc_din[l], &mut ws.pos_dw[l]);
@@ -359,9 +373,10 @@ fn train_epoch(
             for r in 0..BATCH_SIZE {
                 let row = &ws.neg_st[l].data[r * cols..(r + 1) * cols];
                 let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
-                let p = 1.0 / (1.0 + (-(sum_sq - cols as f32) / TEMP).exp());
+                let neg_raw_exp = -(sum_sq - cols as f32) / TEMP;
+                let p_neg = 1.0 / (1.0 + neg_raw_exp.clamp(-80.0, 80.0).exp());
                 for c in 0..cols {
-                    ws.neg_dc_din[l].data[r * cols + c] = -p * row[c];
+                    ws.neg_dc_din[l].data[r * cols + c] = -p_neg * row[c];
                 }
             }
             ws.neg_nst[l].t_matmul_into(&ws.neg_dc_din[l], &mut ws.neg_dw[l]);
@@ -641,7 +656,7 @@ fn print_confusions(matrix: &[[usize; 10]; 10]) {
 fn main() -> Result<(), MnistError> {
     train_model()?;
 
-    if false {
+    if true {
         let data = Mnist::load("MNIST")?;
         let train_imgs: Vec<[f32; mnist::NPIXELS]> = data
             .train_images
@@ -659,8 +674,8 @@ fn main() -> Result<(), MnistError> {
         let (errors, total) = fftest(&model, &test_imgs, &data.test_labels);
         println!("Test Errors: ({errors}/{total})");
 
-        //let (errors, total) = fftest(&model, &train_imgs, &data.train_labels);
-        //println!("Train Errors: ({errors}/{total})");
+        let (errors, total) = fftest(&model, &train_imgs, &data.train_labels);
+        println!("Train Errors: ({errors}/{total})");
 
         let matrix = calc_confusions(&model, &test_imgs, &data.test_labels);
         print_confusions(&matrix);
