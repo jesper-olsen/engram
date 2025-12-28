@@ -139,6 +139,15 @@ fn layer_io_into(vin: &Mat, layer: &Layer, st: &mut Mat, nst: &mut Mat, orng: Op
     nst.norm_rows();
 }
 
+fn embed_label(buffer: &mut [f32], label_idx: usize, strength: f32, num_labels: usize) {
+    // Clear the first N pixels
+    buffer[..num_labels].fill(0.0);
+    // Set the specific pixel for the label
+    if label_idx < num_labels {
+        buffer[label_idx] = strength;
+    }
+}
+
 fn apply_random_shift(
     src_image: &[f32; mnist::NPIXELS],
     target_buffer: &mut [f32],
@@ -162,6 +171,28 @@ fn apply_random_shift(
     }
 }
 
+fn sigmoid(x: f32) -> f32 {
+    1.0 / (1.0 + (-x).exp())
+}
+
+/// Applies the "goodness" function: sum of squares of activities
+fn calc_prob(row: &[f32], temp: f32) -> f32 {
+    let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
+    let cols = row.len() as f32;
+    // Logistic function on the goodness minus threshold (threshold is number of neurons)
+    let logits = (sum_sq - cols) / temp;
+    let logits = logits.clamp(-80.0,80.0); // prevent overflow
+    sigmoid(logits)
+}
+
+/// Clamps values to prevent NaN or Infinity propagation
+fn sanitise_slice(data: &mut [f32]) {
+    for x in data.iter_mut() {
+        if x.is_nan() { *x = 0.0; }
+        *x = x.clamp(-1e10, 1e10);
+    }
+}
+
 fn train_epoch(
     model: &mut [Layer],
     images: &[[f32; mnist::NPIXELS]],
@@ -176,13 +207,13 @@ fn train_epoch(
     } else {
         (1.0 + 2.0 * (MAX_EPOCH - epoch) as f32) / MAX_EPOCH as f32
     };
-    let mut total_train_cost = 0.0;
+    let mut total_cost = 0.0;
 
     let mut indices: Vec<usize> = (0..images.len()).collect();
     indices.shuffle(rng);
 
     for b in 0..num_batches {
-        // --- 1. DATA PREPARATION ---
+        // prepare positive batch - data + correct label
         for i in 0..BATCH_SIZE {
             let idx = indices[b * BATCH_SIZE + i];
             let start = i * mnist::NPIXELS;
@@ -197,6 +228,7 @@ fn train_epoch(
                 ws.data.data[start..start + mnist::NPIXELS].copy_from_slice(&images[idx]);
             }
 
+            // embed label
             let lab = labels[idx] as usize;
             ws.targets.data[i * NUMLAB..(i + 1) * NUMLAB].fill(0.0);
             ws.targets.data[i * NUMLAB + lab] = 1.0;
@@ -204,11 +236,10 @@ fn train_epoch(
             ws.data.data[start..start + NUMLAB].fill(0.0);
             ws.data.data[start + lab] = LABELSTRENGTH;
         }
-
-        // --- 2. POSITIVE PASS ---
         ws.pos_nst[0].data.copy_from_slice(&ws.data.data);
         ws.pos_nst[0].norm_rows();
 
+        // -- forward pass (positive)
         for l in 0..model.len() {
             // Split the slice so we can borrow l and l+1 simultaneously
             let (prev_nst, next_nst) = ws.pos_nst.split_at_mut(l + 1);
@@ -219,18 +250,12 @@ fn train_epoch(
                 &mut next_nst[0],
                 Some(rng),
             );
-            //layer_io_into(&prev_nst[l], &model[l], &mut ws.pos_st[l], &mut next_nst[0]);
-            for x in ws.pos_st[l].data.iter_mut() {
-                *x = x.clamp(-1e10, 1e10); // A "soft" ceiling well below Infinity
-            }
+            sanitise_slice(&mut ws.pos_st[l].data);
 
             let cols = ws.pos_st[l].cols;
             for r in 0..BATCH_SIZE {
                 let row = &ws.pos_st[l].data[r * cols..(r + 1) * cols];
-                let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
-                //ws.pos_probs[l][r] = 1.0 / (1.0 + (-(sum_sq - cols as f32) / TEMP).exp());
-                let raw_exp = -(sum_sq - cols as f32) / TEMP;
-                ws.pos_probs[l][r] = 1.0 / (1.0 + raw_exp.clamp(-80.0, 80.0).exp());
+                ws.pos_probs[l][r] = calc_prob(row, TEMP);
             }
         }
 
@@ -264,10 +289,7 @@ fn train_epoch(
             }
         }
 
-        for x in ws.labin.data.iter_mut() {
-            if x.is_nan() { *x = 0.0; }
-            *x = x.clamp(-1e10, 1e10);
-        }
+        sanitise_slice(&mut ws.labin.data);
 
         // Softmax & Cost Calculation
         for r in 0..BATCH_SIZE {
@@ -284,7 +306,7 @@ fn train_epoch(
             for c in 0..NUMLAB {
                 correct_p += row[c] * ws.targets.data[r * NUMLAB + c];
             }
-            total_train_cost += -(correct_p + TINY).ln();
+            total_cost += -(correct_p + TINY).ln();
         }
 
         // Supervised Weight Update
@@ -355,7 +377,6 @@ fn train_epoch(
                     let mut grad_val = (1.0 - p) * st;
                     if grad_val.is_nan() { grad_val = 0.0; } // NaN shield
                     ws.pos_dc_din[l].data[r * cols + c] = grad_val + reg;
-                    //ws.pos_dc_din[l].data[r * cols + c] = (1.0 - p) * st + reg;
                 }
             }
             ws.pos_nst[l].t_matmul_into(&ws.pos_dc_din[l], &mut ws.pos_dw[l]);
@@ -372,9 +393,8 @@ fn train_epoch(
 
             for r in 0..BATCH_SIZE {
                 let row = &ws.neg_st[l].data[r * cols..(r + 1) * cols];
-                let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
-                let neg_raw_exp = -(sum_sq - cols as f32) / TEMP;
-                let p_neg = 1.0 / (1.0 + neg_raw_exp.clamp(-80.0, 80.0).exp());
+                let p_neg = calc_prob(row, TEMP);
+
                 for c in 0..cols {
                     ws.neg_dc_din[l].data[r * cols + c] = -p_neg * row[c];
                 }
@@ -403,7 +423,7 @@ fn train_epoch(
             }
         }
     }
-    total_train_cost / num_batches as f32
+    total_cost / num_batches as f32
 }
 
 fn predict(model: &[Layer], image: &[f32], ws: &mut BatchWorkspace) -> usize {
