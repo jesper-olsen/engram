@@ -1,5 +1,5 @@
 use engram::Mat;
-use mnist::{Mnist, error::MnistError};
+use mnist::{Mnist, NPIXELS, error::MnistError};
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
@@ -8,6 +8,7 @@ use std::io::{BufReader, BufWriter, Read, Write};
 
 const DROPOUT: f32 = 0.10; // 10% of neurons
 const USE_AUGMENTATION: bool = true;
+const SANITISE: bool = false;
 
 //const TINY: f32 = 1e-20;
 const TINY: f32 = 1e-10;
@@ -139,20 +140,7 @@ fn layer_io_into(vin: &Mat, layer: &Layer, st: &mut Mat, nst: &mut Mat, orng: Op
     nst.norm_rows();
 }
 
-fn embed_label(buffer: &mut [f32], label_idx: usize, strength: f32, num_labels: usize) {
-    // Clear the first N pixels
-    buffer[..num_labels].fill(0.0);
-    // Set the specific pixel for the label
-    if label_idx < num_labels {
-        buffer[label_idx] = strength;
-    }
-}
-
-fn apply_random_shift(
-    src_image: &[f32; mnist::NPIXELS],
-    target_buffer: &mut [f32],
-    rng: &mut StdRng,
-) {
+fn apply_random_shift(src_image: &[f32; NPIXELS], target_buffer: &mut [f32], rng: &mut StdRng) {
     let shift_x = rng.random_range(-1..=1);
     let shift_y = rng.random_range(-1..=1);
 
@@ -176,28 +164,30 @@ fn sigmoid(x: f32) -> f32 {
 }
 
 /// Applies the "goodness" function: sum of squares of activities
-fn calc_prob(row: &[f32], temp: f32) -> f32 {
+fn goodness(row: &[f32], temp: f32) -> f32 {
     let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
     let cols = row.len() as f32;
     // Logistic function on the goodness minus threshold (threshold is number of neurons)
     let logits = (sum_sq - cols) / temp;
-    let logits = logits.clamp(-80.0, 80.0); // prevent overflow
+    //let logits = logits.clamp(-80.0, 80.0); // prevent overflow
     sigmoid(logits)
 }
 
 /// Clamps values to prevent NaN or Infinity propagation
 fn sanitise_slice(data: &mut [f32]) {
-    for x in data.iter_mut() {
-        if x.is_nan() {
-            *x = 0.0;
+    if SANITISE {
+        for x in data.iter_mut() {
+            if x.is_nan() {
+                *x = 0.0;
+            }
+            *x = x.clamp(-1e10, 1e10);
         }
-        *x = x.clamp(-1e10, 1e10);
     }
 }
 
 fn train_epoch(
     model: &mut [Layer],
-    images: &[[f32; mnist::NPIXELS]],
+    images: &[[f32; NPIXELS]],
     labels: &[u8],
     epoch: usize,
     rng: &mut StdRng,
@@ -218,16 +208,12 @@ fn train_epoch(
         // prepare positive batch - data + correct label
         for i in 0..BATCH_SIZE {
             let idx = indices[b * BATCH_SIZE + i];
-            let start = i * mnist::NPIXELS;
+            let start = i * NPIXELS;
 
             if USE_AUGMENTATION {
-                apply_random_shift(
-                    &images[idx],
-                    &mut ws.data.data[start..start + mnist::NPIXELS],
-                    rng,
-                );
+                apply_random_shift(&images[idx], &mut ws.data.data[start..start + NPIXELS], rng);
             } else {
-                ws.data.data[start..start + mnist::NPIXELS].copy_from_slice(&images[idx]);
+                ws.data.data[start..start + NPIXELS].copy_from_slice(&images[idx]);
             }
 
             // embed label
@@ -257,7 +243,7 @@ fn train_epoch(
             let cols = ws.pos_st[l].cols;
             for r in 0..BATCH_SIZE {
                 let row = &ws.pos_st[l].data[r * cols..(r + 1) * cols];
-                ws.pos_probs[l][r] = calc_prob(row, TEMP);
+                ws.pos_probs[l][r] = goodness(row, TEMP);
             }
         }
 
@@ -377,9 +363,9 @@ fn train_epoch(
                         0.9 * model[l].mean_states[c] + 0.1 * (st / BATCH_SIZE as f32);
                     let reg = LAMBDAMEAN * (layer_mean - model[l].mean_states[c]);
                     let mut grad_val = (1.0 - p) * st;
-                    if grad_val.is_nan() {
+                    if SANITISE && grad_val.is_nan() {
                         grad_val = 0.0;
-                    } // NaN shield
+                    }
                     ws.pos_dc_din[l].data[r * cols + c] = grad_val + reg;
                 }
             }
@@ -397,7 +383,7 @@ fn train_epoch(
 
             for r in 0..BATCH_SIZE {
                 let row = &ws.neg_st[l].data[r * cols..(r + 1) * cols];
-                let p_neg = calc_prob(row, TEMP);
+                let p_neg = goodness(row, TEMP);
 
                 for c in 0..cols {
                     ws.neg_dc_din[l].data[r * cols + c] = -p_neg * row[c];
@@ -476,7 +462,7 @@ fn predict(model: &[Layer], image: &[f32], ws: &mut BatchWorkspace) -> usize {
         .unwrap()
 }
 
-fn fftest(model: &[Layer], images: &[[f32; mnist::NPIXELS]], labels: &[u8]) -> (usize, usize) {
+fn fftest(model: &[Layer], images: &[[f32; NPIXELS]], labels: &[u8]) -> (usize, usize) {
     let errors: usize = images
         .par_iter()
         .zip(labels)
@@ -586,12 +572,12 @@ fn train_model() -> Result<(), MnistError> {
         })
         .collect();
 
-    let train_imgs: Vec<[f32; mnist::NPIXELS]> = data
+    let train_imgs: Vec<[f32; NPIXELS]> = data
         .train_images
         .iter()
         .map(|img| img.as_f32_array())
         .collect();
-    let test_imgs: Vec<[f32; mnist::NPIXELS]> = data
+    let test_imgs: Vec<[f32; NPIXELS]> = data
         .test_images
         .iter()
         .map(|img| img.as_f32_array())
@@ -682,12 +668,12 @@ fn main() -> Result<(), MnistError> {
 
     if true {
         let data = Mnist::load("MNIST")?;
-        let train_imgs: Vec<[f32; mnist::NPIXELS]> = data
+        let train_imgs: Vec<[f32; NPIXELS]> = data
             .train_images
             .iter()
             .map(|img| img.as_f32_array())
             .collect();
-        let test_imgs: Vec<[f32; mnist::NPIXELS]> = data
+        let test_imgs: Vec<[f32; NPIXELS]> = data
             .test_images
             .iter()
             .map(|img| img.as_f32_array())
