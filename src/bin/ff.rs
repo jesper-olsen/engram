@@ -181,14 +181,16 @@ fn calc_prob(row: &[f32], temp: f32) -> f32 {
     let cols = row.len() as f32;
     // Logistic function on the goodness minus threshold (threshold is number of neurons)
     let logits = (sum_sq - cols) / temp;
-    let logits = logits.clamp(-80.0,80.0); // prevent overflow
+    let logits = logits.clamp(-80.0, 80.0); // prevent overflow
     sigmoid(logits)
 }
 
 /// Clamps values to prevent NaN or Infinity propagation
 fn sanitise_slice(data: &mut [f32]) {
     for x in data.iter_mut() {
-        if x.is_nan() { *x = 0.0; }
+        if x.is_nan() {
+            *x = 0.0;
+        }
         *x = x.clamp(-1e10, 1e10);
     }
 }
@@ -375,7 +377,9 @@ fn train_epoch(
                         0.9 * model[l].mean_states[c] + 0.1 * (st / BATCH_SIZE as f32);
                     let reg = LAMBDAMEAN * (layer_mean - model[l].mean_states[c]);
                     let mut grad_val = (1.0 - p) * st;
-                    if grad_val.is_nan() { grad_val = 0.0; } // NaN shield
+                    if grad_val.is_nan() {
+                        grad_val = 0.0;
+                    } // NaN shield
                     ws.pos_dc_din[l].data[r * cols + c] = grad_val + reg;
                 }
             }
