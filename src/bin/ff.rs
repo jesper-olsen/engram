@@ -1,5 +1,5 @@
 use engram::Mat;
-use mnist::{Mnist, NPIXELS, error::MnistError};
+use mnist::{IMAGE_HEIGHT, IMAGE_WIDTH, Mnist, NPIXELS, error::MnistError};
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
@@ -140,22 +140,40 @@ fn layer_io_into(vin: &Mat, layer: &Layer, st: &mut Mat, nst: &mut Mat, orng: Op
     nst.norm_rows();
 }
 
+// copy image to target_buffer - randomly shift by one pixel up-down and/or left-right
 fn apply_random_shift(src_image: &[f32; NPIXELS], target_buffer: &mut [f32], rng: &mut StdRng) {
     let shift_x = rng.random_range(-1..=1);
     let shift_y = rng.random_range(-1..=1);
 
-    for y in 0..28 {
-        for x in 0..28 {
-            let src_x = x as i32 + shift_x;
-            let src_y = y as i32 + shift_y;
+    // Fast path: no shift
+    if shift_x == 0 && shift_y == 0 {
+        target_buffer.copy_from_slice(src_image);
+        return;
+    }
 
-            let val = if src_x >= 0 && src_x < 28 && src_y >= 0 && src_y < 28 {
-                src_image[(src_y * 28 + src_x) as usize]
-            } else {
-                0.0
-            };
-            target_buffer[y * 28 + x] = val;
-        }
+    const W: i32 = IMAGE_WIDTH as i32;
+    const H: i32 = IMAGE_HEIGHT as i32;
+
+    // Calculate valid destination ranges
+    let y_start = 0.max(-shift_y) as usize;
+    let y_end = H.min(H - shift_y) as usize;
+    let x_start = 0.max(-shift_x) as usize;
+    let x_end = W.min(W - shift_x) as usize;
+    let copy_width = x_end - x_start;
+
+    // Zero edges (faster than per-pixel branching)
+    target_buffer.fill(0.0);
+
+    // Copy valid region row by row
+    for y in y_start..y_end {
+        let src_y = (y as i32 + shift_y) as usize;
+        let src_x = (x_start as i32 + shift_x) as usize;
+
+        let dst_idx = y * IMAGE_WIDTH + x_start;
+        let src_idx = src_y * IMAGE_WIDTH + src_x;
+
+        target_buffer[dst_idx..dst_idx + copy_width]
+            .copy_from_slice(&src_image[src_idx..src_idx + copy_width]);
     }
 }
 
@@ -185,6 +203,66 @@ fn sanitise_slice(data: &mut [f32]) {
     }
 }
 
+/// Prepares a batch of positive examples (images with correct labels embedded).
+///
+/// This function:
+/// 1. Copies images into the workspace (with optional augmentation)
+/// 2. Creates one-hot target vectors
+/// 3. Embeds the correct label into the first NUMLAB pixels of each image
+/// 4. Normalizes the input for the first layer
+fn prepare_positive_batch(
+    images: &[[f32; NPIXELS]],
+    labels: &[u8],
+    indices: &[usize],
+    batch_idx: usize,
+    ws: &mut BatchWorkspace,
+    rng: &mut StdRng,
+) {
+    let batch_start = batch_idx * BATCH_SIZE;
+
+    for i in 0..BATCH_SIZE {
+        let sample_idx = indices[batch_start + i];
+        let img_offset = i * NPIXELS;
+        let label = labels[sample_idx] as usize;
+
+        copy_image_to_buffer(
+            &images[sample_idx],
+            &mut ws.data.data[img_offset..img_offset + NPIXELS],
+            rng,
+        );
+        set_one_hot(&mut ws.targets.data[i * NUMLAB..(i + 1) * NUMLAB], label);
+        embed_label(&mut ws.data.data[img_offset..img_offset + NUMLAB], label);
+    }
+
+    // Initialize first layer's normalized state
+    ws.pos_nst[0].data.copy_from_slice(&ws.data.data);
+    ws.pos_nst[0].norm_rows();
+}
+
+/// Copies an image to a buffer, optionally applying augmentation.
+#[inline]
+fn copy_image_to_buffer(src: &[f32; NPIXELS], dst: &mut [f32], rng: &mut StdRng) {
+    if USE_AUGMENTATION {
+        apply_random_shift(src, dst, rng);
+    } else {
+        dst.copy_from_slice(src);
+    }
+}
+
+/// Sets a slice to a one-hot encoding of the given class.
+#[inline]
+fn set_one_hot(slice: &mut [f32], class: usize) {
+    slice.fill(0.0);
+    slice[class] = 1.0;
+}
+
+/// Embeds a label into the first NUMLAB pixels of an image region.
+#[inline]
+fn embed_label(region: &mut [f32], label: usize) {
+    region.fill(0.0);
+    region[label] = LABELSTRENGTH;
+}
+
 fn train_epoch(
     model: &mut [Layer],
     images: &[[f32; NPIXELS]],
@@ -205,27 +283,27 @@ fn train_epoch(
     indices.shuffle(rng);
 
     for b in 0..num_batches {
-        // prepare positive batch - data + correct label
-        for i in 0..BATCH_SIZE {
-            let idx = indices[b * BATCH_SIZE + i];
-            let start = i * NPIXELS;
+        prepare_positive_batch(images, labels, &indices, b, ws, rng);
+        //for i in 0..BATCH_SIZE {
+        //    let idx = indices[b * BATCH_SIZE + i];
+        //    let start = i * NPIXELS;
 
-            if USE_AUGMENTATION {
-                apply_random_shift(&images[idx], &mut ws.data.data[start..start + NPIXELS], rng);
-            } else {
-                ws.data.data[start..start + NPIXELS].copy_from_slice(&images[idx]);
-            }
+        //    if USE_AUGMENTATION {
+        //        apply_random_shift(&images[idx], &mut ws.data.data[start..start + NPIXELS], rng);
+        //    } else {
+        //        ws.data.data[start..start + NPIXELS].copy_from_slice(&images[idx]);
+        //    }
 
-            // embed label
-            let lab = labels[idx] as usize;
-            ws.targets.data[i * NUMLAB..(i + 1) * NUMLAB].fill(0.0);
-            ws.targets.data[i * NUMLAB + lab] = 1.0;
+        //    // embed label
+        //    let lab = labels[idx] as usize;
+        //    ws.targets.data[i * NUMLAB..(i + 1) * NUMLAB].fill(0.0);
+        //    ws.targets.data[i * NUMLAB + lab] = 1.0;
 
-            ws.data.data[start..start + NUMLAB].fill(0.0);
-            ws.data.data[start + lab] = LABELSTRENGTH;
-        }
-        ws.pos_nst[0].data.copy_from_slice(&ws.data.data);
-        ws.pos_nst[0].norm_rows();
+        //    ws.data.data[start..start + NUMLAB].fill(0.0);
+        //    ws.data.data[start + lab] = LABELSTRENGTH;
+        //}
+        //ws.pos_nst[0].data.copy_from_slice(&ws.data.data);
+        //ws.pos_nst[0].norm_rows();
 
         // -- forward pass (positive)
         for l in 0..model.len() {
@@ -601,15 +679,12 @@ fn train_model() -> Result<(), MnistError> {
             let (errors0, total0) = fftest(&model, &train_imgs[RTRAIN], &data.train_labels[RTRAIN]);
             let (errors1, total1) = fftest(&model, &train_imgs[RVAL], &data.train_labels[RVAL]);
             println!(
-                "Epoch {epoch:3} | Cost: {cost:8.4} | Errors; Train: ({errors0}/{total0}), Valid: ({errors1}/{total1})"
+                "Epoch {epoch:3} | Cost: {cost:8.4} | Err Train: ({errors0}/{total0}), Err Val: ({errors1}/{total1})"
             );
         } else {
             println!("Epoch {epoch:3} | Cost: {cost:8.4}");
         }
     }
-
-    let (errors, total) = fftest(&model, &test_imgs, &data.test_labels);
-    println!("Test Errors: ({errors}/{total})");
 
     let fname = "model_ff.bin";
     println!("Saving model to: {fname}");
