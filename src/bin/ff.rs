@@ -1,23 +1,22 @@
 use engram::Mat;
 use mnist::{IMAGE_HEIGHT, IMAGE_WIDTH, Mnist, NPIXELS, error::MnistError};
 use rand::prelude::*;
-use rand::rngs::StdRng;
+use rand::rngs::SmallRng;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 
-const DROPOUT: f32 = 0.10; // 10% of neurons
+// --- Hyperparameters ---
+const DROPOUT: f32 = 0.10;
+const USE_DROPOUT: bool = true;
 const USE_AUGMENTATION: bool = true;
 const SANITISE: bool = false;
-
-//const TINY: f32 = 1e-20;
 const TINY: f32 = 1e-10;
 const NUMLAB: usize = 10;
 const LAMBDAMEAN: f32 = 0.03;
 const TEMP: f32 = 1.0;
 const LABELSTRENGTH: f32 = 1.0;
 const MINLEVELSUP: usize = 2;
-//const MINLEVELENERGY: usize = 2;
 const WC: f32 = 0.002;
 const SUPWC: f32 = 0.003;
 const EPSILON: f32 = 0.01;
@@ -25,18 +24,17 @@ const EPSILONSUP: f32 = 0.1;
 const DELAY: f32 = 0.9;
 const LAYERS: [usize; 4] = [784, 1000, 1000, 1000];
 const BATCH_SIZE: usize = 100;
-//const MAX_EPOCH: usize = 125;
 const MAX_EPOCH: usize = 200;
+
+// --- Data Structures ---
 
 struct Layer {
     weights: Mat,
     biases: Vec<f32>,
     supweights: Option<Mat>,
-
     weights_grad: Mat,
     biases_grad: Vec<f32>,
     supweights_grad: Option<Mat>,
-
     mean_states: Vec<f32>,
 }
 
@@ -55,7 +53,6 @@ struct BatchWorkspace {
     pos_probs: Vec<Vec<f32>>,
     pos_dc_din: Vec<Mat>,
     neg_dc_din: Vec<Mat>,
-    // Gradient buffers to avoid allocations
     pos_dw: Vec<Mat>,
     neg_dw: Vec<Mat>,
     sup_contrib: Mat,
@@ -74,33 +71,27 @@ impl BatchWorkspace {
             neg_data: Mat::zeros(batch_size, layers[0]),
             pos_st: layers[1..]
                 .iter()
-                .map(|&cols| Mat::zeros(batch_size, cols))
+                .map(|&c| Mat::zeros(batch_size, c))
                 .collect(),
-            pos_nst: (0..layers.len())
-                .map(|i| Mat::zeros(batch_size, layers[i]))
-                .collect(),
+            pos_nst: layers.iter().map(|&c| Mat::zeros(batch_size, c)).collect(),
             neg_st: layers[1..]
                 .iter()
-                .map(|&cols| Mat::zeros(batch_size, cols))
+                .map(|&c| Mat::zeros(batch_size, c))
                 .collect(),
-            neg_nst: (0..layers.len())
-                .map(|i| Mat::zeros(batch_size, layers[i]))
-                .collect(),
+            neg_nst: layers.iter().map(|&c| Mat::zeros(batch_size, c)).collect(),
             softmax_st: layers[1..]
                 .iter()
-                .map(|&cols| Mat::zeros(batch_size, cols))
+                .map(|&c| Mat::zeros(batch_size, c))
                 .collect(),
-            softmax_nst: (0..layers.len())
-                .map(|i| Mat::zeros(batch_size, layers[i]))
-                .collect(),
+            softmax_nst: layers.iter().map(|&c| Mat::zeros(batch_size, c)).collect(),
             pos_probs: vec![vec![0.0; batch_size]; layers.len() - 1],
             pos_dc_din: layers[1..]
                 .iter()
-                .map(|&cols| Mat::zeros(batch_size, cols))
+                .map(|&c| Mat::zeros(batch_size, c))
                 .collect(),
             neg_dc_din: layers[1..]
                 .iter()
-                .map(|&cols| Mat::zeros(batch_size, cols))
+                .map(|&c| Mat::zeros(batch_size, c))
                 .collect(),
             pos_dw: (0..layers.len() - 1)
                 .map(|i| Mat::zeros(layers[i], layers[i + 1]))
@@ -114,84 +105,21 @@ impl BatchWorkspace {
     }
 }
 
-fn layer_io_into(vin: &Mat, layer: &Layer, st: &mut Mat, nst: &mut Mat, orng: Option<&mut StdRng>) {
-    vin.matmul_into(&layer.weights, st);
+// --- Helper Functions ---
 
-    let cols = st.cols;
-    st.data.par_chunks_mut(cols).for_each(|row| {
-        for (val, &bias) in row.iter_mut().zip(layer.biases.iter()) {
-            *val = (*val + bias).max(0.0);
-        }
-    });
-
-    // dropout - for training only
-    if let Some(rng) = orng {
-        for val in st.data.iter_mut() {
-            if rng.random::<f32>() < DROPOUT {
-                *val = 0.0;
-            } else {
-                // Rescale to keep the expected sum of squares (Goodness) consistent
-                *val /= (1.0 - DROPOUT).sqrt();
-            }
-        }
-    }
-
-    nst.data.copy_from_slice(&st.data);
-    nst.norm_rows();
-}
-
-// copy image to target_buffer - randomly shift by one pixel up-down and/or left-right
-fn apply_random_shift(src_image: &[f32; NPIXELS], target_buffer: &mut [f32], rng: &mut StdRng) {
-    let shift_x = rng.random_range(-1..=1);
-    let shift_y = rng.random_range(-1..=1);
-
-    // Fast path: no shift
-    if shift_x == 0 && shift_y == 0 {
-        target_buffer.copy_from_slice(src_image);
-        return;
-    }
-
-    const W: i32 = IMAGE_WIDTH as i32;
-    const H: i32 = IMAGE_HEIGHT as i32;
-
-    // Calculate valid destination ranges
-    let y_start = 0.max(-shift_y) as usize;
-    let y_end = H.min(H - shift_y) as usize;
-    let x_start = 0.max(-shift_x) as usize;
-    let x_end = W.min(W - shift_x) as usize;
-    let copy_width = x_end - x_start;
-
-    // Zero edges (faster than per-pixel branching)
-    target_buffer.fill(0.0);
-
-    // Copy valid region row by row
-    for y in y_start..y_end {
-        let src_y = (y as i32 + shift_y) as usize;
-        let src_x = (x_start as i32 + shift_x) as usize;
-
-        let dst_idx = y * IMAGE_WIDTH + x_start;
-        let src_idx = src_y * IMAGE_WIDTH + src_x;
-
-        target_buffer[dst_idx..dst_idx + copy_width]
-            .copy_from_slice(&src_image[src_idx..src_idx + copy_width]);
-    }
-}
-
+#[inline(always)]
 fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
-/// Applies the "goodness" function: sum of squares of activities
+#[inline(always)]
 fn goodness(row: &[f32], temp: f32) -> f32 {
     let sum_sq: f32 = row.iter().map(|&x| x * x).sum();
     let cols = row.len() as f32;
-    // Logistic function on the goodness minus threshold (threshold is number of neurons)
-    let logits = (sum_sq - cols) / temp;
-    //let logits = logits.clamp(-80.0, 80.0); // prevent overflow
-    sigmoid(logits)
+    sigmoid((sum_sq - cols) / temp)
 }
 
-/// Clamps values to prevent NaN or Infinity propagation
+#[inline(always)]
 fn sanitise_slice(data: &mut [f32]) {
     if SANITISE {
         for x in data.iter_mut() {
@@ -203,64 +131,118 @@ fn sanitise_slice(data: &mut [f32]) {
     }
 }
 
-/// Prepares a batch of positive examples (images with correct labels embedded).
-///
-/// This function:
-/// 1. Copies images into the workspace (with optional augmentation)
-/// 2. Creates one-hot target vectors
-/// 3. Embeds the correct label into the first NUMLAB pixels of each image
-/// 4. Normalizes the input for the first layer
+/// Applies MatMul -> Bias -> ReLU -> Dropout -> Normalization
+fn layer_io_into(
+    vin: &Mat,
+    layer: &Layer,
+    st: &mut Mat,
+    nst: &mut Mat,
+    orng: Option<&mut SmallRng>,
+) {
+    vin.matmul_into(&layer.weights, st);
+    let cols = st.cols;
+
+    // Process Bias + ReLU + Dropout
+    if let Some(rng) = orng
+        && USE_DROPOUT
+    {
+        let dropout_scale = 1.0 / (1.0 - DROPOUT).sqrt(); // TODO: no sqrt?
+        st.data.chunks_exact_mut(cols).for_each(|row| {
+            for (val, &bias) in row.iter_mut().zip(layer.biases.iter()) {
+                *val = (*val + bias).max(0.0); // ReLU
+                if rng.random::<f32>() < DROPOUT {
+                    *val = 0.0;
+                } else {
+                    *val *= dropout_scale;
+                }
+            }
+        });
+    } else {
+        // Inference path (Parallelizable)
+        st.data.par_chunks_mut(cols).for_each(|row| {
+            for (val, &bias) in row.iter_mut().zip(layer.biases.iter()) {
+                *val = (*val + bias).max(0.0);
+            }
+        });
+    }
+    nst.data.copy_from_slice(&st.data);
+    nst.norm_rows();
+}
+
+fn apply_random_shift(src_image: &[f32; NPIXELS], target_buffer: &mut [f32], rng: &mut SmallRng) {
+    let shift_x = rng.random_range(-1..=1);
+    let shift_y = rng.random_range(-1..=1);
+
+    if shift_x == 0 && shift_y == 0 {
+        target_buffer.copy_from_slice(src_image);
+        return;
+    }
+
+    const W: i32 = IMAGE_WIDTH as i32;
+    const H: i32 = IMAGE_HEIGHT as i32;
+    let y_start = 0.max(-shift_y) as usize;
+    let y_end = H.min(H - shift_y) as usize;
+    let x_start = 0.max(-shift_x) as usize;
+    let x_end = W.min(W - shift_x) as usize;
+    let copy_width = x_end - x_start;
+
+    target_buffer.fill(0.0);
+
+    for y in y_start..y_end {
+        let src_y = (y as i32 + shift_y) as usize;
+        let src_x = (x_start as i32 + shift_x) as usize;
+        let dst_idx = y * IMAGE_WIDTH + x_start;
+        let src_idx = src_y * IMAGE_WIDTH + src_x;
+        target_buffer[dst_idx..dst_idx + copy_width]
+            .copy_from_slice(&src_image[src_idx..src_idx + copy_width]);
+    }
+}
+
+/// Prepares the batch in parallel.
+/// Uses a seed vector to ensure deterministic behavior across threads.
 fn prepare_positive_batch(
     images: &[[f32; NPIXELS]],
     labels: &[u8],
     indices: &[usize],
     batch_idx: usize,
     ws: &mut BatchWorkspace,
-    rng: &mut StdRng,
+    seeds: &[u64], // Pre-generated seeds for determinism
 ) {
     let batch_start = batch_idx * BATCH_SIZE;
+    let chunk_indices = &indices[batch_start..batch_start + BATCH_SIZE];
 
-    for i in 0..BATCH_SIZE {
-        let sample_idx = indices[batch_start + i];
-        let img_offset = i * NPIXELS;
-        let label = labels[sample_idx] as usize;
+    ws.data
+        .data
+        .par_chunks_exact_mut(NPIXELS)
+        .zip(ws.targets.data.par_chunks_exact_mut(NUMLAB))
+        .zip(chunk_indices)
+        .zip(seeds)
+        .for_each(|(((img_buf, target_buf), &sample_idx), &seed)| {
+            let mut local_rng = SmallRng::seed_from_u64(seed);
 
-        copy_image_to_buffer(
-            &images[sample_idx],
-            &mut ws.data.data[img_offset..img_offset + NPIXELS],
-            rng,
-        );
-        set_one_hot(&mut ws.targets.data[i * NUMLAB..(i + 1) * NUMLAB], label);
-        embed_label(&mut ws.data.data[img_offset..img_offset + NUMLAB], label);
-    }
+            let img_buf: &mut [f32] = img_buf;
+            let target_buf: &mut [f32] = target_buf;
+            let label = labels[sample_idx] as usize;
 
-    // Initialize first layer's normalized state
+            // 1. Augment / Copy
+            if USE_AUGMENTATION {
+                apply_random_shift(&images[sample_idx], img_buf, &mut local_rng);
+            } else {
+                img_buf.copy_from_slice(&images[sample_idx][..]);
+            }
+
+            // 2. Set Targets (One Hot)
+            target_buf.fill(0.0);
+            target_buf[label] = 1.0;
+
+            // 3. Embed Label
+            img_buf[..NUMLAB].fill(0.0);
+            img_buf[label] = LABELSTRENGTH;
+        });
+
+    // Initialize first layer
     ws.pos_nst[0].data.copy_from_slice(&ws.data.data);
     ws.pos_nst[0].norm_rows();
-}
-
-/// Copies an image to a buffer, optionally applying augmentation.
-#[inline]
-fn copy_image_to_buffer(src: &[f32; NPIXELS], dst: &mut [f32], rng: &mut StdRng) {
-    if USE_AUGMENTATION {
-        apply_random_shift(src, dst, rng);
-    } else {
-        dst.copy_from_slice(src);
-    }
-}
-
-/// Sets a slice to a one-hot encoding of the given class.
-#[inline]
-fn set_one_hot(slice: &mut [f32], class: usize) {
-    slice.fill(0.0);
-    slice[class] = 1.0;
-}
-
-/// Embeds a label into the first NUMLAB pixels of an image region.
-#[inline]
-fn embed_label(region: &mut [f32], label: usize) {
-    region.fill(0.0);
-    region[label] = LABELSTRENGTH;
 }
 
 fn train_epoch(
@@ -268,8 +250,10 @@ fn train_epoch(
     images: &[[f32; NPIXELS]],
     labels: &[u8],
     epoch: usize,
-    rng: &mut StdRng,
+    rng: &mut SmallRng,
     ws: &mut BatchWorkspace,
+    indices: &mut [usize],
+    seed_buffer: &mut Vec<u64>,
 ) -> f32 {
     let num_batches = images.len() / BATCH_SIZE;
     let epsgain = if epoch < MAX_EPOCH / 2 {
@@ -277,37 +261,20 @@ fn train_epoch(
     } else {
         (1.0 + 2.0 * (MAX_EPOCH - epoch) as f32) / MAX_EPOCH as f32
     };
-    let mut total_cost = 0.0;
 
-    let mut indices: Vec<usize> = (0..images.len()).collect();
+    let mut total_cost = 0.0;
     indices.shuffle(rng);
 
     for b in 0..num_batches {
-        prepare_positive_batch(images, labels, &indices, b, ws, rng);
-        //for i in 0..BATCH_SIZE {
-        //    let idx = indices[b * BATCH_SIZE + i];
-        //    let start = i * NPIXELS;
+        // Generate seeds for this batch on the main thread for determinism
+        for seed in seed_buffer.iter_mut() {
+            *seed = rng.next_u64();
+        }
 
-        //    if USE_AUGMENTATION {
-        //        apply_random_shift(&images[idx], &mut ws.data.data[start..start + NPIXELS], rng);
-        //    } else {
-        //        ws.data.data[start..start + NPIXELS].copy_from_slice(&images[idx]);
-        //    }
+        prepare_positive_batch(images, labels, indices, b, ws, seed_buffer);
 
-        //    // embed label
-        //    let lab = labels[idx] as usize;
-        //    ws.targets.data[i * NUMLAB..(i + 1) * NUMLAB].fill(0.0);
-        //    ws.targets.data[i * NUMLAB + lab] = 1.0;
-
-        //    ws.data.data[start..start + NUMLAB].fill(0.0);
-        //    ws.data.data[start + lab] = LABELSTRENGTH;
-        //}
-        //ws.pos_nst[0].data.copy_from_slice(&ws.data.data);
-        //ws.pos_nst[0].norm_rows();
-
-        // -- forward pass (positive)
+        // --- 1. FORWARD PASS (POSITIVE) ---
         for l in 0..model.len() {
-            // Split the slice so we can borrow l and l+1 simultaneously
             let (prev_nst, next_nst) = ws.pos_nst.split_at_mut(l + 1);
             layer_io_into(
                 &prev_nst[l],
@@ -320,20 +287,18 @@ fn train_epoch(
 
             let cols = ws.pos_st[l].cols;
             for r in 0..BATCH_SIZE {
-                let row = &ws.pos_st[l].data[r * cols..(r + 1) * cols];
-                ws.pos_probs[l][r] = goodness(row, TEMP);
+                ws.pos_probs[l][r] = goodness(&ws.pos_st[l].data[r * cols..(r + 1) * cols], TEMP);
             }
         }
 
-        // --- 3. SOFTMAX PREDICTOR & SUPERVISED WEIGHTS ---
+        // --- 2. SOFTMAX ---
         ws.lab_data.data.copy_from_slice(&ws.data.data);
-        ws.lab_data
-            .data
-            .chunks_exact_mut(784)
-            .for_each(|img| img[..NUMLAB].fill(LABELSTRENGTH / NUMLAB as f32));
-
+        for r in 0..BATCH_SIZE {
+            ws.lab_data.data[r * 784..r * 784 + NUMLAB].fill(LABELSTRENGTH / NUMLAB as f32);
+        }
         ws.softmax_nst[0].data.copy_from_slice(&ws.lab_data.data);
         ws.softmax_nst[0].norm_rows();
+
         for l in 0..model.len() {
             let (prev_nst, next_nst) = ws.softmax_nst.split_at_mut(l + 1);
             layer_io_into(
@@ -345,6 +310,7 @@ fn train_epoch(
             );
         }
 
+        // Supervised Contributions
         ws.labin.data.fill(0.0);
         for l in MINLEVELSUP - 1..model.len() {
             if let Some(sw) = &model[l].supweights {
@@ -354,102 +320,95 @@ fn train_epoch(
                 }
             }
         }
-
         sanitise_slice(&mut ws.labin.data);
 
-        // Softmax & Cost Calculation
+        // Softmax & Gradients
         for r in 0..BATCH_SIZE {
             let row = &mut ws.labin.data[r * NUMLAB..(r + 1) * NUMLAB];
+            let target_row = &ws.targets.data[r * NUMLAB..(r + 1) * NUMLAB];
+
             let max_val = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
             let mut sum_exp = 0.0;
             for x in row.iter_mut() {
                 *x = (*x - max_val).exp();
                 sum_exp += *x;
             }
-            row.iter_mut().for_each(|x| *x /= sum_exp);
 
             let mut correct_p = 0.0;
             for c in 0..NUMLAB {
-                correct_p += row[c] * ws.targets.data[r * NUMLAB + c];
+                row[c] /= sum_exp;
+                correct_p += row[c] * target_row[c];
+                ws.dc_din_sup.data[r * NUMLAB + c] = target_row[c] - row[c];
             }
             total_cost += -(correct_p + TINY).ln();
         }
 
-        // Supervised Weight Update
-        for i in 0..ws.dc_din_sup.data.len() {
-            ws.dc_din_sup.data[i] = ws.targets.data[i] - ws.labin.data[i];
-        }
         for l in MINLEVELSUP - 1..model.len() {
             if let Some(sw) = &mut model[l].supweights {
                 ws.softmax_nst[l + 1].t_matmul_into(&ws.dc_din_sup, &mut ws.sw_grad_tmp);
                 let g_buf = model[l].supweights_grad.as_mut().unwrap();
+                let scale = epsgain * EPSILONSUP;
                 for i in 0..sw.data.len() {
                     g_buf.data[i] = DELAY * g_buf.data[i]
                         + (1.0 - DELAY) * ws.sw_grad_tmp.data[i] / BATCH_SIZE as f32;
-                    sw.data[i] += epsgain * EPSILONSUP * (g_buf.data[i] - SUPWC * sw.data[i]);
+                    sw.data[i] += scale * (g_buf.data[i] - SUPWC * sw.data[i]);
                 }
             }
         }
 
-        // --- 4. NEGATIVE PASS ---
-
+        // --- 3. NEGATIVE PASS ---
+        ws.neg_data.data.copy_from_slice(&ws.data.data);
         for r in 0..BATCH_SIZE {
-            let mut probs = [0.0f32; NUMLAB];
             let start_idx = r * NUMLAB;
-            probs.copy_from_slice(&ws.labin.data[start_idx..start_idx + NUMLAB]);
-            for c in 0..NUMLAB {
-                if ws.targets.data[r * NUMLAB + c] > 0.0 {
-                    probs[c] = 0.0;
-                }
-            }
-            let sum: f32 = probs.iter().sum();
+            let probs = &ws.labin.data[start_idx..start_idx + NUMLAB];
+            let targets = &ws.targets.data[start_idx..start_idx + NUMLAB];
 
-            let mut cum = 0.0;
-            let rv: f32 = rng.random();
             let mut sel = 0;
-            for (c, &p) in probs.iter().enumerate() {
-                cum += p / (sum + TINY);
-                if rv < cum {
-                    sel = c;
-                    break;
+            let rv: f32 = rng.random();
+            let mut cum = 0.0;
+            let sum_other: f32 = probs
+                .iter()
+                .zip(targets)
+                .filter(|&(_, &t)| t == 0.0)
+                .map(|(&p, _)| p)
+                .sum();
+
+            for (c, (&p, &t)) in probs.iter().zip(targets).enumerate() {
+                if t == 0.0 {
+                    cum += p / (sum_other + TINY);
+                    if rv < cum {
+                        sel = c;
+                        break;
+                    }
                 }
             }
-
-            let start = r * 784;
-            // Copy the already shifted/prepared image from pos buffer to neg buffer
-            ws.neg_data.data[start..start + 784].copy_from_slice(&ws.data.data[start..start + 784]);
-
-            // Overwrite with a WRONG label for the negative pass
-            ws.neg_data.data[start..start + NUMLAB].fill(0.0);
-            ws.neg_data.data[start + sel] = LABELSTRENGTH;
+            let img_start = r * 784;
+            let label_slice = &mut ws.neg_data.data[img_start..img_start + NUMLAB];
+            label_slice.fill(0.0);
+            label_slice[sel] = LABELSTRENGTH;
         }
 
         ws.neg_nst[0].data.copy_from_slice(&ws.neg_data.data);
         ws.neg_nst[0].norm_rows();
 
-        // --- 5. LAYER UPDATES (WEIGHTS & BIASES) ---
+        // --- 4. WEIGHT UPDATES ---
         for l in 0..model.len() {
-            // Pos Grad preparation
             let cols = model[l].weights.cols;
             let layer_mean: f32 = model[l].mean_states.iter().sum::<f32>() / cols as f32;
+            let inv_bs = 1.0 / BATCH_SIZE as f32;
 
             for r in 0..BATCH_SIZE {
                 let p = ws.pos_probs[l][r];
+                let row_offset = r * cols;
                 for c in 0..cols {
-                    let st = ws.pos_st[l].data[r * cols + c];
-                    model[l].mean_states[c] =
-                        0.9 * model[l].mean_states[c] + 0.1 * (st / BATCH_SIZE as f32);
+                    let st = ws.pos_st[l].data[row_offset + c];
+                    model[l].mean_states[c] = 0.9 * model[l].mean_states[c] + 0.1 * (st * inv_bs);
                     let reg = LAMBDAMEAN * (layer_mean - model[l].mean_states[c]);
-                    let mut grad_val = (1.0 - p) * st;
-                    if SANITISE && grad_val.is_nan() {
-                        grad_val = 0.0;
-                    }
-                    ws.pos_dc_din[l].data[r * cols + c] = grad_val + reg;
+                    ws.pos_dc_din[l].data[row_offset + c] = (1.0 - p) * st + reg;
                 }
             }
             ws.pos_nst[l].t_matmul_into(&ws.pos_dc_din[l], &mut ws.pos_dw[l]);
 
-            // Neg pass
             let (prev_nst, next_nst) = ws.neg_nst.split_at_mut(l + 1);
             layer_io_into(
                 &prev_nst[l],
@@ -460,34 +419,36 @@ fn train_epoch(
             );
 
             for r in 0..BATCH_SIZE {
-                let row = &ws.neg_st[l].data[r * cols..(r + 1) * cols];
+                let row_offset = r * cols;
+                let row = &ws.neg_st[l].data[row_offset..row_offset + cols];
                 let p_neg = goodness(row, TEMP);
-
                 for c in 0..cols {
-                    ws.neg_dc_din[l].data[r * cols + c] = -p_neg * row[c];
+                    ws.neg_dc_din[l].data[row_offset + c] = -p_neg * row[c];
                 }
             }
             ws.neg_nst[l].t_matmul_into(&ws.neg_dc_din[l], &mut ws.neg_dw[l]);
 
-            // Apply Updates to Weights
-            for i in 0..model[l].weights.data.len() {
-                let g = (ws.pos_dw[l].data[i] + ws.neg_dw[l].data[i]) / BATCH_SIZE as f32;
-                model[l].weights_grad.data[i] =
-                    DELAY * model[l].weights_grad.data[i] + (1.0 - DELAY) * g;
-                model[l].weights.data[i] += epsgain
-                    * EPSILON
-                    * (model[l].weights_grad.data[i] - WC * model[l].weights.data[i]);
+            let w_scale = epsgain * EPSILON;
+            let wg = &mut model[l].weights_grad.data;
+            let w = &mut model[l].weights.data;
+            let pdw = &ws.pos_dw[l].data;
+            let ndw = &ws.neg_dw[l].data;
+
+            for i in 0..w.len() {
+                let g = (pdw[i] + ndw[i]) * inv_bs;
+                wg[i] = DELAY * wg[i] + (1.0 - DELAY) * g;
+                w[i] += w_scale * (wg[i] - WC * w[i]);
             }
 
-            // Apply Updates to Biases
-            for c in 0..model[l].biases.len() {
+            let bg = &mut model[l].biases_grad;
+            let b = &mut model[l].biases;
+            for c in 0..b.len() {
                 let mut g = 0.0;
                 for r in 0..BATCH_SIZE {
                     g += ws.pos_dc_din[l].data[r * cols + c] + ws.neg_dc_din[l].data[r * cols + c];
                 }
-                model[l].biases_grad[c] =
-                    DELAY * model[l].biases_grad[c] + (1.0 - DELAY) * (g / BATCH_SIZE as f32);
-                model[l].biases[c] += epsgain * EPSILON * model[l].biases_grad[c];
+                bg[c] = DELAY * bg[c] + (1.0 - DELAY) * (g * inv_bs);
+                b[c] += w_scale * bg[c];
             }
         }
     }
@@ -495,19 +456,14 @@ fn train_epoch(
 }
 
 fn predict(model: &[Layer], image: &[f32], ws: &mut BatchWorkspace) -> usize {
-    // 1. Prepare input: Copy image to workspace data buffer
     ws.data.data[..784].copy_from_slice(image);
     ws.data.data[..NUMLAB].fill(LABELSTRENGTH / NUMLAB as f32);
-
-    // 2. Initial normalization
     let input_len = ws.pos_nst[0].data.len();
     ws.pos_nst[0]
         .data
         .copy_from_slice(&ws.data.data[..input_len]);
-    //ffnormrows(&mut ws.pos_nst[0]);
     ws.pos_nst[0].norm_rows();
 
-    // 3. Forward Pass: Traverse layers
     for l in 0..model.len() {
         let (prev_nst, next_nst) = ws.pos_nst.split_at_mut(l + 1);
         layer_io_into(
@@ -519,24 +475,20 @@ fn predict(model: &[Layer], image: &[f32], ws: &mut BatchWorkspace) -> usize {
         );
     }
 
-    // 4. Sum scores from all supervised layers
     let mut scores = [0.0f32; NUMLAB];
     for l in MINLEVELSUP - 1..model.len() {
         if let Some(sw) = &model[l].supweights {
-            // Matmul into sup_contrib (which is 1x10 in this workspace)
             ws.pos_nst[l + 1].matmul_into(sw, &mut ws.sup_contrib);
             for c in 0..NUMLAB {
                 scores[c] += ws.sup_contrib.data[c];
             }
         }
     }
-
-    // 5. Return index of the highest score
     scores
         .iter()
         .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(index, _)| index)
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .map(|(i, _)| i)
         .unwrap()
 }
 
@@ -545,7 +497,7 @@ fn fftest(model: &[Layer], images: &[[f32; NPIXELS]], labels: &[u8]) -> (usize, 
         .par_iter()
         .zip(labels)
         .map_init(
-            || BatchWorkspace::new(&LAYERS, 1), // Initialize 1 workspace per thread
+            || BatchWorkspace::new(&LAYERS, 1),
             |ws, (img, &label)| {
                 if predict(model, img, ws) != label as usize {
                     1
@@ -561,27 +513,19 @@ fn fftest(model: &[Layer], images: &[[f32; NPIXELS]], labels: &[u8]) -> (usize, 
 fn save_model(model: &[Layer], path: &str) -> std::io::Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
-
-    // Write number of layers
     writer.write_all(&(model.len() as u64).to_le_bytes())?;
-
     for layer in model {
-        // 1. Weights
         layer.weights.write_raw(&mut writer)?;
-
-        // 2. Biases (Vec<f32>)
         writer.write_all(&(layer.biases.len() as u64).to_le_bytes())?;
         let b_bytes: &[u8] = unsafe {
             std::slice::from_raw_parts(layer.biases.as_ptr() as *const u8, layer.biases.len() * 4)
         };
         writer.write_all(b_bytes)?;
-
-        // 3. Supervised Weights
         if let Some(sw) = &layer.supweights {
-            writer.write_all(&[1u8])?; // Flag for Some
+            writer.write_all(&[1u8])?;
             sw.write_raw(&mut writer)?;
         } else {
-            writer.write_all(&[0u8])?; // Flag for None
+            writer.write_all(&[0u8])?;
         }
     }
     Ok(())
@@ -590,23 +534,18 @@ fn save_model(model: &[Layer], path: &str) -> std::io::Result<()> {
 fn load_model(path: &str) -> std::io::Result<Vec<Layer>> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
-
     let mut b8 = [0u8; 8];
     reader.read_exact(&mut b8)?;
     let num_layers = u64::from_le_bytes(b8) as usize;
-
     let mut model = Vec::with_capacity(num_layers);
-
     for _ in 0..num_layers {
         let weights = Mat::read_raw(&mut reader)?;
-
         reader.read_exact(&mut b8)?;
         let b_len = u64::from_le_bytes(b8) as usize;
         let mut biases = vec![0.0f32; b_len];
         let b_bytes: &mut [u8] =
             unsafe { std::slice::from_raw_parts_mut(biases.as_mut_ptr() as *mut u8, b_len * 4) };
         reader.read_exact(b_bytes)?;
-
         let mut opt_flag = [0u8; 1];
         reader.read_exact(&mut opt_flag)?;
         let supweights = if opt_flag[0] == 1 {
@@ -614,8 +553,6 @@ fn load_model(path: &str) -> std::io::Result<Vec<Layer>> {
         } else {
             None
         };
-
-        // Reconstruct gradients and states as zeros
         let (rows, cols) = (weights.rows, weights.cols);
         model.push(Layer {
             weights_grad: Mat::zeros(rows, cols),
@@ -632,12 +569,14 @@ fn load_model(path: &str) -> std::io::Result<Vec<Layer>> {
 
 fn train_model() -> Result<(), MnistError> {
     let data = Mnist::load("MNIST")?;
-    let mut rng = StdRng::seed_from_u64(1234);
+    // UNIFIED RNG: Single SmallRng used for everything.
+    let mut rng = SmallRng::seed_from_u64(1234);
 
     let mut model: Vec<Layer> = (0..LAYERS.len() - 1)
         .map(|i| {
             let fanin = LAYERS[i];
             let fanout = LAYERS[i + 1];
+            // Requires updated Mat::new_randn that accepts generic Rng
             Layer {
                 weights: Mat::new_randn(fanin, fanout, 1.0 / (fanin as f32).sqrt(), &mut rng),
                 biases: vec![0.0; fanout],
@@ -655,18 +594,18 @@ fn train_model() -> Result<(), MnistError> {
         .iter()
         .map(|img| img.as_f32_array())
         .collect();
-    let test_imgs: Vec<[f32; NPIXELS]> = data
-        .test_images
-        .iter()
-        .map(|img| img.as_f32_array())
-        .collect();
-
     let mut ws = BatchWorkspace::new(&LAYERS, BATCH_SIZE);
+
+    // TRAINING RANGES
+    const RTRAIN: std::ops::Range<usize> = 0..50000;
+    const RVAL: std::ops::Range<usize> = 50000..60000;
+
+    // Initialize indices specifically for the training slice size (50,000)
+    let mut indices: Vec<usize> = (0..RTRAIN.len()).collect();
+    let mut seed_buffer: Vec<u64> = vec![0; BATCH_SIZE];
 
     println!("Training Forward-Forward Model...");
     for epoch in 0..MAX_EPOCH {
-        const RTRAIN: std::ops::Range<usize> = 0..50000;
-        const RVAL: std::ops::Range<usize> = 50000..60000;
         let cost = train_epoch(
             &mut model,
             &train_imgs[RTRAIN],
@@ -674,7 +613,10 @@ fn train_model() -> Result<(), MnistError> {
             epoch,
             &mut rng,
             &mut ws,
+            &mut indices,
+            &mut seed_buffer,
         );
+
         if (epoch > 0 && epoch % 5 == 0) || epoch == MAX_EPOCH - 1 {
             let (errors0, total0) = fftest(&model, &train_imgs[RTRAIN], &data.train_labels[RTRAIN]);
             let (errors1, total1) = fftest(&model, &train_imgs[RVAL], &data.train_labels[RVAL]);
@@ -685,62 +627,45 @@ fn train_model() -> Result<(), MnistError> {
             println!("Epoch {epoch:3} | Cost: {cost:8.4}");
         }
     }
-
-    let fname = "model_ff.bin";
-    println!("Saving model to: {fname}");
-    save_model(&model, fname)?;
-
+    save_model(&model, "model_ff.bin")?;
     Ok(())
 }
 
 fn calc_confusions(model: &[Layer], images: &[[f32; 784]], labels: &[u8]) -> [[usize; 10]; 10] {
     let mut matrix = [[0usize; 10]; 10];
     let mut ws = BatchWorkspace::new(&LAYERS, 1);
-
     println!("Calculating confusion matrix...");
     for (img, &label) in images.iter().zip(labels) {
         let pred = predict(model, img, &mut ws);
         matrix[label as usize][pred] += 1;
     }
-    return matrix;
+    matrix
 }
 
 fn print_confusions(matrix: &[[usize; 10]; 10]) {
-    println!("\nConfusion Matrix (Actual vs Predicted):");
-    println!("");
-
-    // Header
+    println!("\nConfusion Matrix (Actual vs Predicted):\n");
     print!("Actual |");
     for i in 0..10 {
-        print!("  P{}  ", i);
+        print!("  P{i}  ");
     }
     println!("\n-------|------------------------------------------------------------");
-
     for i in 0..10 {
-        // Row label
         print!("  A{}   |", i);
-
         for j in 0..10 {
             let count = matrix[i][j];
-            if i == j {
-                // Correct: Just the number
-                print!("{:>5} ", count);
-            } else if count > 0 {
-                // Error: Just the number
-                print!("{:>5} ", count);
-            } else {
-                // Zero: Just a dot, padded to match the 5-space width
+            if count == 0 {
                 print!("{:>5} ", ".");
+            } else {
+                print!("{count:>5} ");
             }
         }
-        println!("");
+        println!();
     }
     println!("--------------------------------------------------------------------");
 }
 
 fn main() -> Result<(), MnistError> {
     train_model()?;
-
     if true {
         let data = Mnist::load("MNIST")?;
         let train_imgs: Vec<[f32; NPIXELS]> = data
@@ -753,18 +678,13 @@ fn main() -> Result<(), MnistError> {
             .iter()
             .map(|img| img.as_f32_array())
             .collect();
-
-        let fname = "model_ff.bin";
-        let model = load_model(fname)?;
+        let model = load_model("model_ff.bin")?;
         let (errors, total) = fftest(&model, &test_imgs, &data.test_labels);
         println!("Test Errors: ({errors}/{total})");
-
         let (errors, total) = fftest(&model, &train_imgs, &data.train_labels);
         println!("Train Errors: ({errors}/{total})");
-
         let matrix = calc_confusions(&model, &test_imgs, &data.test_labels);
         print_confusions(&matrix);
     }
-
     Ok(())
 }
