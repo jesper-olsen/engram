@@ -2,13 +2,12 @@
 
 Exploring MNIST digit classification with high-dimensional binary vectors and biologically inspired learning.
 
-**Best Result**: 98.76% test accuracy (Forward-Forward Algorithm)
+**Best Result**: 98.35% test accuracy (Modern Hopfield Algorithm)
 
 ## Models
 
 | Approach | Single Model | Ensemble (5) | Training |
 |----------|-------------|--------------|----------|
-| Forward-Forward | 99.29% | — | Local Goodness Optimization |
 | Perceptron | 95-97% | **97.89%** | Iterative error correction |
 | Modern Hopfield | 97-98% | **98.35%** | Greedy prototype selection |
 | K-Means (VQ) | 95.19% | — | Centroid clustering |
@@ -29,7 +28,6 @@ cd engram
 
 Run the models:
 
-* Forward-Forward: `cargo run --bin ff --release`
 * Perceptron: `cargo run --bin hyper --release`
 * Modern Hopfield: `cargo run --bin mhn --release`
 * Classic Hopfield: `cargo run --bin hop --release`
@@ -37,34 +35,10 @@ Run the models:
 
 Note: This model achieves near-state-of-the-art performance for MNIST without ever calculating a global gradient or using a chain rule.
 
-## Forward-Forward (FF)
-
-Based on Geoffrey Hinton's Forward-Forward algorithm. Instead of backpropagation, each layer is trained to distinguish between "positive" data (real MNIST digits with correct labels) and "negative" data (digits with incorrect labels).
-
-### Key Techniques
-
-* **Architecture**: 4 layers [784, 1000, 1000, 1000] using Rectified Linear Units (ReLU).
-
-* **Local Objective**: Each layer independently maximises "goodness" (sum of squared activations) for positive data and minimises it for negative data, avoiding the need for a global backward pass.
-
-* **Symetric Augmentation**: Training samples are augmented by randomly shifting images up/down and left/right by one pixel. 
-
-* **Regularization**: 10% Dropout and Weight Decay (0.002) to prevent the model from memorising specific training pixels.
-
-* **Supervised Head**: A softmax layer sits on top of the normalised hidden states, accumulating scores from all supervised layers to provide the final classification.
-
-### Results 
-
-|               | Train Accuracy | Test Accuracy | Errors Test | Epochs
-|--------------:|---------------:|--------------:|------------:|-------:
-| Train on 50k  | 99.82%         | 99.23%        | 77 / 10,000 | 200
-| Train on 60k  | 99.79%         | 99.29%        | 71 / 10,000 | 200
-
-
 
 ## Feature Encoding
 
-All the following models use the same hypervector encoding:
+All the models use the same hypervector encoding:
 
 * **Pixel Bag**: Positional hypervectors bound (XORed) with intensity vectors
 * **Edge Features**: Sobel edge detection (horizontal, vertical, both diagonals)
