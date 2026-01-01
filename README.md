@@ -2,8 +2,6 @@
 
 Exploring MNIST digit classification with high-dimensional binary vectors and biologically inspired learning.
 
-**Best Result**: 98.35% test accuracy (Modern Hopfield Algorithm)
-
 ## Models
 
 | Approach | Single Model | Ensemble (5) | Training |
