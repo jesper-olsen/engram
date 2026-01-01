@@ -2,6 +2,8 @@
 
 Exploring MNIST digit classification with high-dimensional binary vectors and biologically inspired learning.
 
+For comparison with another biologically inspired approach to MNIST, see [FF](https://github.com/jesper-olsen/forward-forward-rs).
+
 ## Models
 
 | Approach | Single Model | Ensemble (5) | Training |
