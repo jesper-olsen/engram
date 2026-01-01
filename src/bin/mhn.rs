@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 const N: usize = 100;
 const PROTOTYPES_PER_CLASS: usize = 500;
-//const BETA: f64 = 60.0;
-const BETA: f64 = 40.0;
+const BETA: f64 = 60.0;
+//const BETA: f64 = 40.0;
 const NUM_CLASSES: usize = 10;
 
 pub struct ModernHopfield {
@@ -112,6 +112,7 @@ impl HdvClassifier<N> for ModernHopfield {
 
 fn main() -> Result<(), MnistError> {
     let data = Mnist::load("MNIST")?;
+    //let data = Mnist::load("MNISTfashion")?;
     let ensemble_size = 5;
 
     let mut ensemble: Ensemble<ModernHopfield> = Ensemble::with_capacity(ensemble_size);

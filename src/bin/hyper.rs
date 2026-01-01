@@ -151,6 +151,7 @@ impl<'a, const N: usize, R: Rng> Trainer<'a, N, R> {
 fn main() -> Result<(), MnistError> {
     const N: usize = 100;
     let data = Mnist::load("MNIST")?;
+    //let data = Mnist::load("MNISTfashion")?;
     println!("Read {} training labels", data.train_labels.len());
     let ensemble_size = 5;
     let mut ensemble: Ensemble<Model<N>> = Ensemble::with_capacity(ensemble_size);

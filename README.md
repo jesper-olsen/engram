@@ -73,7 +73,7 @@ Iterative perceptron-style training refines 10 prototype hypervectors (one per d
 cargo run --bin hyper --release
 ```
 
-### Ensemble Results (N=100)
+### Ensemble Results MNIST (N=100)
 
 | Model | Accuracy |
 |------:|---------:|
@@ -83,6 +83,17 @@ cargo run --bin hyper --release
 | 4 | 97.16% |
 | 5 | 97.15% |
 | **Ensemble** | **97.89%** |
+
+### Ensemble Results MNISTfashion (N=100)
+
+| Model | Accuracy |
+|------:|---------:|
+| 1 | 84.42% |
+| 2 | 82.01% |
+| 3 | 83.69% |
+| 4 | 85.78% |
+| 5 | 84.06% |
+| **Ensemble** | **87.50%** |
 
 ## Modern Hopfield
 
@@ -94,7 +105,7 @@ Energy-based associative memory with softmax attention over stored prototypes. G
 cargo run --bin hopfield --release
 ```
 
-### Ensemble Results (N=100, β=60)
+### Ensemble Results MNIST (N=100, β=60)
 
 | Model | Accuracy |
 |------:|---------:|
@@ -104,6 +115,18 @@ cargo run --bin hopfield --release
 | 4 | 98.13% |
 | 5 | 97.84% |
 | **Ensemble** | **98.35%** |
+
+### Ensemble Results MNISTfashion (N=100, β=60)
+
+| Model | Accuracy |
+|------:|---------:|
+| 1 | 84.42% |
+| 2 | 83.27% |
+| 3 | 83.24% |
+| 4 | 83.03% |
+| 5 | 83.11% |
+| **Ensemble** | **84.90%** |
+
 
 ## Classic Hopfield
 
