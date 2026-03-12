@@ -122,14 +122,14 @@ impl<const N: usize> MnistEncoder<N> {
 
         let intensity_min = BinaryHDV::<N>::random(&mut rng);
         let intensity_max = BinaryHDV::<N>::random(&mut rng);
-        let mut intensities = Vec::with_capacity(256);
+        let mut intensities = Vec::with_capacity(255);
         intensities.push(intensity_min);
 
         let dim: usize = BinaryHDV::<N>::DIM;
         let mut permutations: Vec<usize> = (0..dim).collect();
         permutations.shuffle(&mut rng);
 
-        for i in 1..255 {
+        for i in 1..256 {
             let bit = (i as f64 / 255.0) * dim as f64;
             let bit = bit as usize;
             let bit = bit.min(dim);
@@ -137,7 +137,7 @@ impl<const N: usize> MnistEncoder<N> {
             //let bi = BinaryHDV::<N>::flip(&intensities[i - 1], nflip, &mut rng);
             intensities.push(bi);
         }
-        intensities.push(intensity_max);
+
         MnistEncoder {
             positions,
             intensities,

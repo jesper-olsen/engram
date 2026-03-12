@@ -39,7 +39,7 @@ impl ModernHopfield {
         for &i in &indices {
             let lbl = data.train_labels[i];
             if counts[lbl as usize] == 0 {
-                self.memories.push((lbl, train_hvs[i].clone()));
+                self.memories.push((lbl, train_hvs[i]));
                 counts[lbl as usize] += 1;
             }
             if counts.iter().all(|&c| c > 0) {
