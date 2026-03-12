@@ -11,11 +11,13 @@ pub use classifier::{HdvClassifier, ImageClassifier, calc_accuracy};
 pub use ensemble::Ensemble;
 
 use crate::kmeans::KMeans;
-use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use hypervector::{Accumulator, HyperVector};
+use hypervector::{
+    binary_hdv::{BinaryAccumulator, BinaryHDV},
+    encoding::ScalarEncoder,
+};
 use mnist::Image;
 use rand::Rng;
-use rand::seq::SliceRandom;
 
 pub mod kmeans;
 
@@ -92,7 +94,7 @@ const ALL_FEATURES: u8 = FEATURE_PIXEL_BAG
 pub struct MnistEncoder<const N: usize> {
     //pub positions: [BinaryHDV<N>; 28 * 28],
     positions: Vec<BinaryHDV<N>>,
-    intensities: Vec<BinaryHDV<N>>,
+    intensities: ScalarEncoder<BinaryHDV<N>>,
     feature_horizontal_edge: BinaryHDV<N>,
     feature_vertical_edge: BinaryHDV<N>,
     feature_diag_tl_br: BinaryHDV<N>,
@@ -120,23 +122,7 @@ impl<const N: usize> MnistEncoder<N> {
         let relative_patch_positions: [BinaryHDV<N>; 9] =
             core::array::from_fn(|_| BinaryHDV::random(rng));
 
-        let intensity_min = BinaryHDV::<N>::random(&mut rng);
-        let intensity_max = BinaryHDV::<N>::random(&mut rng);
-        let mut intensities = Vec::with_capacity(255);
-        intensities.push(intensity_min);
-
-        let dim: usize = BinaryHDV::<N>::DIM;
-        let mut permutations: Vec<usize> = (0..dim).collect();
-        permutations.shuffle(&mut rng);
-
-        for i in 1..256 {
-            let bit = (i as f64 / 255.0) * dim as f64;
-            let bit = bit as usize;
-            let bit = bit.min(dim);
-            let bi = BinaryHDV::<N>::blend(&intensity_min, &intensity_max, &permutations[..bit]);
-            //let bi = BinaryHDV::<N>::flip(&intensities[i - 1], nflip, &mut rng);
-            intensities.push(bi);
-        }
+        let intensities = ScalarEncoder::<BinaryHDV<N>>::new(0.0, 255.0, 256, rng);
 
         MnistEncoder {
             positions,
@@ -225,8 +211,8 @@ impl<const N: usize> MnistEncoder<N> {
 
             for (i, &intensity) in pixels.iter().enumerate() {
                 if intensity > THRESHOLD {
-                    let intensity_hdv = self.intensities[intensity as usize];
-                    let pixel_hdv = self.positions[i].bind(&intensity_hdv);
+                    let intensity_hdv = self.intensities.encode(intensity as f32);
+                    let pixel_hdv = self.positions[i].bind(intensity_hdv);
                     let weight = intensity as f64 / 255.0;
                     accumulator.add(&pixel_hdv, weight);
                 }
@@ -309,7 +295,7 @@ impl<const N: usize> MnistEncoder<N> {
                     if intensity > 0 {
                         // The pixel's representation within the patch
                         let pixel_hdv = self.relative_patch_positions[i]
-                            .bind(&self.intensities[intensity as usize]);
+                            .bind(self.intensities.encode(intensity as f32));
                         let weight = intensity as f64 / 255.0;
                         patch_accumulator.add(&pixel_hdv, weight);
                     }
@@ -341,7 +327,7 @@ impl<const N: usize> MnistEncoder<N> {
             for (i, &intensity) in patch_view.pixels.iter().enumerate() {
                 if intensity > 0 {
                     let pixel_hdv = self.relative_patch_positions[i]
-                        .bind(&self.intensities[intensity as usize]);
+                        .bind(self.intensities.encode(intensity as f32));
                     let weight = intensity as f64 / 255.0;
                     patch_accumulator.add(&pixel_hdv, weight);
                     //total_patch_intensity += intensity as f64;
@@ -395,7 +381,7 @@ impl<const N: usize> MnistEncoder<N> {
             for (i, &intensity) in patch_view.pixels.iter().enumerate() {
                 if intensity > 0 {
                     let pixel_hdv = self.relative_patch_positions[i]
-                        .bind(&self.intensities[intensity as usize]);
+                        .bind(self.intensities.encode(intensity as f32));
                     patch_accum.add(&pixel_hdv, intensity as f64 / 255.0);
                 }
             }

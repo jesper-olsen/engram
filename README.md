@@ -8,7 +8,7 @@ For comparison with another biologically inspired approach to MNIST, see [FF](ht
 
 | Approach | Single Model | Ensemble (5) | Training |
 |----------|-------------|--------------|----------|
-| Perceptron | 95-97% | **97.89%** | Iterative error correction |
+| Perceptron | 95-97% | 97.87% | Iterative error correction |
 | Modern Hopfield | 97-98% | **98.35%** | Greedy prototype selection |
 | K-Means (VQ) | 95.19% | — | Centroid clustering |
 | Classic Hopfield | 88.02% | — | Associative memory |
