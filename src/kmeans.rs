@@ -22,8 +22,8 @@ impl<const N: usize> KMeans<N> {
         let seed = 42;
         let mut rng = StdRng::seed_from_u64(seed);
         let centroids: Vec<BinaryHDV<N>> = data
-            .choose_multiple(&mut rng, k)
-            .map(|v| *v.borrow())
+            .sample(&mut rng, k)
+            .map(|v| v.borrow().clone())
             .collect();
 
         Self {

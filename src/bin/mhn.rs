@@ -39,7 +39,7 @@ impl ModernHopfield {
         for &i in &indices {
             let lbl = data.train_labels[i];
             if counts[lbl as usize] == 0 {
-                self.memories.push((lbl, train_hvs[i]));
+                self.memories.push((lbl, train_hvs[i].clone()));
                 counts[lbl as usize] += 1;
             }
             if counts.iter().all(|&c| c > 0) {
@@ -61,7 +61,7 @@ impl ModernHopfield {
                 if pred != lbl {
                     errors += 1;
                     if counts[lbl as usize] < PROTOTYPES_PER_CLASS {
-                        self.memories.push((lbl, train_hvs[i]));
+                        self.memories.push((lbl, train_hvs[i].clone()));
                         counts[lbl as usize] += 1;
                         added_this_round += 1;
                     }

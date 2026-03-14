@@ -401,7 +401,7 @@ impl<const N: usize> MnistEncoder<N> {
             let similarity = 1.0 - (dist as f64 / BinaryHDV::<N>::DIM as f64);
 
             tokens.push(Token {
-                feature: *best_feature,
+                feature: best_feature.clone(),
                 pos_idx: patch_view.y * 28 + patch_view.x,
                 weight: similarity.powi(2),
             });

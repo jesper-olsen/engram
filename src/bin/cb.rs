@@ -105,7 +105,7 @@ fn main() -> Result<(), MnistError> {
     println!("True    0       1       2       3       4       5       6       7       8       9");
     println!("----------------------------------------------------------------------------------");
 
-    let centroids: Vec<BinaryHDV<N>> = cbs.iter().map(|cb| cb.centroids[0]).collect();
+    let centroids: Vec<BinaryHDV<N>> = cbs.iter().map(|cb| cb.centroids[0].clone()).collect();
     for true_digit in 0..10u8 {
         // Filter test HVs to get only those for the current true_digit
         let digit_test_hvs: Vec<&BinaryHDV<N>> = test_hvs
