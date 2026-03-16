@@ -2,6 +2,7 @@ use engram::{Ensemble, HdvClassifier, ImageClassifier, MnistEncoder, calc_accura
 use hypervector::{
     Accumulator,
     binary_hdv::{BinaryAccumulator, BinaryHDV},
+    nearest,
 };
 use mnist::{self, Image, Mnist, error::MnistError};
 use rand::Rng;
@@ -27,13 +28,7 @@ impl<const N: usize> ImageClassifier for Model<N> {
 
 impl<const N: usize> HdvClassifier<N> for Model<N> {
     fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8 {
-        self.hdvs
-            .iter()
-            .enumerate()
-            .map(|(j, model)| (j, model.hamming_distance(h)))
-            .min_by_key(|&(_, dist)| dist)
-            .map(|(j, _)| j as u8)
-            .unwrap_or(0)
+        nearest(h, &self.hdvs).try_into().unwrap()
     }
 }
 
