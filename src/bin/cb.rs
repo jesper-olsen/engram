@@ -1,6 +1,6 @@
 use engram::MnistEncoder;
 use engram::kmeans::KMeans;
-use hypervector::binary_hdv::BinaryHDV;
+use hypervector::{HyperVector, binary_hdv::BinaryHDV};
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
 //use rand::rng;
@@ -124,12 +124,12 @@ fn main() -> Result<(), MnistError> {
 
         // For this set of HVs, calculate avg distance to EACH centroid
         for centroid in &centroids {
-            let total_distance: u32 = digit_test_hvs
+            let total_distance: f32 = digit_test_hvs
                 .par_iter()
-                .map(|&hdv| hdv.hamming_distance(centroid))
+                .map(|&hdv| hdv.distance(centroid))
                 .sum();
 
-            let avg_distance = total_distance as f64 / num_samples as f64;
+            let avg_distance = total_distance / num_samples as f32;
             print!("{avg_distance:<7.0} ");
         }
         println!();
