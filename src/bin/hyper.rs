@@ -28,7 +28,8 @@ impl<const N: usize> ImageClassifier for Model<N> {
 
 impl<const N: usize> HdvClassifier<N> for Model<N> {
     fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8 {
-        nearest(h, &self.hdvs).try_into().unwrap()
+        let (idx,_) = nearest(h, &self.hdvs);
+        idx.try_into().unwrap()
     }
 }
 

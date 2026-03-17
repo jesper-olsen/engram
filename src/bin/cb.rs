@@ -38,7 +38,7 @@ fn compute_codebooks<const N: usize>(
 fn classify<const N: usize>(test_hvs: &[BinaryHDV<N>], labels: &[u8], models: &[KMeans<N>]) {
     let mut correct = 0;
     for (hv, digit) in test_hvs.iter().zip(labels.iter()) {
-        let mut min_dist = u32::MAX;
+        let mut min_dist = f32::MAX;
         let mut best_cb = 0;
         for (i, cb) in models.iter().enumerate() {
             let (_cluster, dist) = cb.nearest(hv);

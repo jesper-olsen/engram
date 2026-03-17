@@ -1,4 +1,4 @@
-use hypervector::Accumulator;
+use hypervector::{HyperVector,Accumulator};
 use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
@@ -81,39 +81,13 @@ impl<const N: usize> KMeans<N> {
         total_dist
     }
 
-    //fn step<T: Borrow<BinaryHDV<N>> + Sync>(&mut self, data: &[T]) -> usize {
-    //    // Parallel assignment: each thread processes a chunk of the data
-    //    let results: Vec<(u32, u32)> = data
-    //        .par_iter()
-    //        .map(|v| self.nearest(v.borrow()))
-    //        .collect();
-
-    //    let mut accumulators: Vec<BinaryAccumulator<N>> =
-    //        (0..self.k).map(|_| BinaryAccumulator::new()).collect();
-    //
-    //    let total_dist: u32 = results
-    //        .iter()
-    //        .zip(data.iter())
-    //        .map(|(&(idx, dist), v)| {
-    //            accumulators[idx as usize].add(v.borrow(), 1.0);
-    //            dist
-    //        })
-    //        .sum();
-
-    //    // Update centroids and counts
-    //    self.centroids = accumulators.iter().map(|a| a.finalize()).collect();
-    //    self.counts = accumulators.iter().map(|acc| acc.count as usize).collect();
-
-    //    total_dist as usize
-    //}
-
     // Finds the index and distance of the nearest centroid to a given vector.
-    pub fn nearest(&self, hdv: &BinaryHDV<N>) -> (u32, u32) {
-        let mut min_dist = u32::MAX;
+    pub fn nearest(&self, hdv: &BinaryHDV<N>) -> (u32, f32) {
+        let mut min_dist = f32::MAX;
         let mut best_cluster = 0;
 
         for (j, centroid) in self.centroids.iter().enumerate() {
-            let dist = hdv.hamming_distance(centroid);
+            let dist = hdv.distance(centroid);
             if dist < min_dist {
                 min_dist = dist;
                 best_cluster = j;
@@ -121,13 +95,4 @@ impl<const N: usize> KMeans<N> {
         }
         (best_cluster as u32, min_dist)
     }
-
-    //pub fn nearest(&self, hdv: &BinaryHDV<N>) -> (u32, u32) {
-    //    self.centroids
-    //        .iter()
-    //        .enumerate()
-    //        .map(|(j, centroid)| (j as u32, hdv.hamming_distance(centroid)))
-    //        .min_by_key(|&(_, dist)| dist)
-    //        .expect("Centroids should not be empty")
-    //}
 }
