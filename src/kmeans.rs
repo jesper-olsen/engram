@@ -76,7 +76,7 @@ impl<const N: usize> KMeans<N> {
             })
             .sum();
         self.centroids = accumulators.iter().map(|a| a.finalize()).collect();
-        self.counts = accumulators.iter().map(|acc| acc.count as usize).collect();
+        self.counts = accumulators.iter().map(|acc| acc.count() as usize).collect();
 
         total_dist
     }
