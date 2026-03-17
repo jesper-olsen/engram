@@ -1,9 +1,5 @@
 use engram::{Ensemble, HdvClassifier, ImageClassifier, MnistEncoder, calc_accuracy};
-use hypervector::{
-    Accumulator,
-    binary_hdv::{BinaryAccumulator, BinaryHDV},
-    nearest,
-};
+use hypervector::{Accumulator, HyperVector, binary_hdv::BinaryHDV, modular_hdv::ModularHDV, hdv, nearest};
 use mnist::{self, Image, Mnist, error::MnistError};
 use rand::Rng;
 use rand::SeedableRng;
@@ -14,51 +10,51 @@ use std::io::Write;
 
 const NUM_CLASSES: usize = 10;
 
-struct Model<const N: usize> {
-    hdvs: [BinaryHDV<N>; NUM_CLASSES],
-    encoder: MnistEncoder<N>,
+struct Model<T: HyperVector> {
+    hdvs: [T; NUM_CLASSES],
+    encoder: MnistEncoder<T>,
 }
 
-impl<const N: usize> ImageClassifier for Model<N> {
+impl<T: HyperVector> ImageClassifier for Model<T> {
     fn predict(&self, im: &Image) -> u8 {
         let h = self.encoder.encode(im);
         self.predict_hdv(&h)
     }
 }
 
-impl<const N: usize> HdvClassifier<N> for Model<N> {
-    fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8 {
+impl<T: HyperVector> HdvClassifier<T> for Model<T> {
+    fn predict_hdv(&self, h: &T) -> u8 {
         let (idx, _) = nearest(h, &self.hdvs);
         idx.try_into().unwrap()
     }
 }
 
-struct Trainer<'a, const N: usize, R: Rng> {
-    accumulators: [BinaryAccumulator<N>; NUM_CLASSES],
-    model: Model<N>,
-    train_hvs: Vec<BinaryHDV<N>>,
+struct Trainer<'a, T: HyperVector + std::marker::Send + std::marker::Sync, R: Rng> {
+    accumulators: [T::Accumulator; NUM_CLASSES],
+    model: Model<T>,
+    train_hvs: Vec<T>,
     train_labels: &'a [u8],
     indices: Vec<usize>,
     rng: R,
 }
 
-impl<'a, const N: usize, R: Rng> Trainer<'a, N, R> {
+impl<'a, T: HyperVector + std::marker::Send + std::marker::Sync, R: Rng> Trainer<'a, T, R> {
     pub fn new(data: &'a Mnist, mut rng: R) -> Self {
-        let encoder = MnistEncoder::<N>::new(&mut rng)
+        let encoder = MnistEncoder::<T>::new(&mut rng)
             .with_feature_pixel_bag()
             .with_feature_edges();
         //.with_feature_learned()
         //.train_on(&data.train_images, &data.train_labels);
 
-        println!("Encoding training images (Dim {N}x64={})...", N * 64);
-        let train_hvs: Vec<BinaryHDV<N>> = data
+        println!("Encoding training images (Dim {})...", T::DIM);
+        let train_hvs: Vec<T> = data
             .train_images
             .par_iter()
             .map(|im| encoder.encode(im))
             .collect();
 
-        let mut accumulators: [BinaryAccumulator<N>; NUM_CLASSES] =
-            core::array::from_fn(|_| BinaryAccumulator::<N>::new());
+        let mut accumulators: [T::Accumulator; NUM_CLASSES] =
+            core::array::from_fn(|_| T::Accumulator::new());
 
         let indices = (0..train_hvs.len()).collect();
 
@@ -69,8 +65,7 @@ impl<'a, const N: usize, R: Rng> Trainer<'a, N, R> {
             accumulators[digit].add(hdv, 1.0);
         }
 
-        let hdvs: [BinaryHDV<N>; NUM_CLASSES] =
-            core::array::from_fn(|i| accumulators[i].finalize());
+        let hdvs: [T; NUM_CLASSES] = core::array::from_fn(|i| accumulators[i].finalize());
         let model = Model { hdvs, encoder };
 
         Trainer {
@@ -145,12 +140,13 @@ impl<'a, const N: usize, R: Rng> Trainer<'a, N, R> {
 }
 
 fn main() -> Result<(), MnistError> {
-    const N: usize = 100;
+    const TOTAL_BITS: usize = 6400;
+    hdv!(binary, HDV, TOTAL_BITS);
     let data = Mnist::load("MNIST")?;
     //let data = Mnist::load("MNISTfashion")?;
     println!("Read {} training labels", data.train_labels.len());
     let ensemble_size = 5;
-    let mut ensemble: Ensemble<Model<N>> = Ensemble::with_capacity(ensemble_size);
+    let mut ensemble: Ensemble<Model<HDV>> = Ensemble::with_capacity(ensemble_size);
     let seed = 42;
     for mn in 1..=ensemble_size {
         let rng = StdRng::seed_from_u64(seed + mn as u64);

@@ -11,11 +11,8 @@ pub use classifier::{HdvClassifier, ImageClassifier, calc_accuracy};
 pub use ensemble::Ensemble;
 
 use crate::kmeans::KMeans;
-use hypervector::{Accumulator, HyperVector};
-use hypervector::{
-    binary_hdv::{BinaryAccumulator, BinaryHDV},
-    encoding::ScalarEncoder,
-};
+use hypervector::encoding::ScalarEncoder;
+use hypervector::{Accumulator, HyperVector, nearest};
 use mnist::Image;
 use rand::Rng;
 
@@ -91,48 +88,33 @@ const ALL_FEATURES: u8 = FEATURE_PIXEL_BAG
 /// - Position vectors for each of 784 pixels (28×28)
 /// - Intensity vectors for 256 gray levels (0-255)
 /// - Feature vectors for edge orientations
-pub struct MnistEncoder<const N: usize> {
-    //pub positions: [BinaryHDV<N>; 28 * 28],
-    positions: Vec<BinaryHDV<N>>,
-    intensities: ScalarEncoder<BinaryHDV<N>>,
-    feature_horizontal_edge: BinaryHDV<N>,
-    feature_vertical_edge: BinaryHDV<N>,
-    feature_diag_tl_br: BinaryHDV<N>,
-    feature_diag_tr_bl: BinaryHDV<N>,
-    //edge_positive: BinaryHDV<N>,
-    //edge_negative: BinaryHDV<N>,
+pub struct MnistEncoder<T: HyperVector> {
+    positions: Vec<T>,
+    intensities: ScalarEncoder<T>,
+    feature_horizontal_edge: T,
+    feature_vertical_edge: T,
+    feature_diag_tl_br: T,
+    feature_diag_tr_bl: T,
     features: u8,
-    relative_patch_positions: [BinaryHDV<N>; 9],
-    learned_features: Option<Vec<BinaryHDV<N>>>,
+    relative_patch_positions: [T; 9],
+    learned_features: Option<Vec<T>>,
 }
 
-impl<const N: usize> MnistEncoder<N> {
-    //fn polarity(&self, diff: i16) -> &BinaryHDV<N> {
-    //    if diff > 0 {
-    //        &self.edge_positive
-    //    } else {
-    //        &self.edge_negative
-    //    }
-    //}
-
+impl<T: HyperVector> MnistEncoder<T> {
     pub fn new(mut rng: &mut impl Rng) -> Self {
-        //let positions = core::array::from_fn(|_| BinaryHDV::<N>::random(&mut rng));
-        let positions = (0..784).map(|_| BinaryHDV::<N>::random(&mut rng)).collect();
+        let positions = (0..784).map(|_| T::random(&mut rng)).collect();
 
-        let relative_patch_positions: [BinaryHDV<N>; 9] =
-            core::array::from_fn(|_| BinaryHDV::random(rng));
+        let relative_patch_positions: [T; 9] = core::array::from_fn(|_| T::random(rng));
 
-        let intensities = ScalarEncoder::<BinaryHDV<N>>::new(0.0, 255.0, 256, rng);
+        let intensities = ScalarEncoder::<T>::new(0.0, 255.0, 256, rng);
 
         MnistEncoder {
             positions,
             intensities,
-            feature_horizontal_edge: BinaryHDV::<N>::random(&mut rng),
-            feature_vertical_edge: BinaryHDV::<N>::random(&mut rng),
-            feature_diag_tl_br: BinaryHDV::<N>::random(&mut rng),
-            feature_diag_tr_bl: BinaryHDV::<N>::random(&mut rng),
-            //edge_positive: BinaryHDV::<N>::random(&mut rng),
-            //edge_negative: BinaryHDV::<N>::random(&mut rng),
+            feature_horizontal_edge: T::random(&mut rng),
+            feature_vertical_edge: T::random(&mut rng),
+            feature_diag_tl_br: T::random(&mut rng),
+            feature_diag_tr_bl: T::random(&mut rng),
             features: 0,
             relative_patch_positions,
             learned_features: None,
@@ -181,7 +163,7 @@ impl<const N: usize> MnistEncoder<N> {
         self
     }
 
-    pub fn encode(&self, image: &Image) -> BinaryHDV<N> {
+    pub fn encode(&self, image: &Image) -> T {
         if self.features & FEATURE_LEARNED != 0 {
             if self.features != FEATURE_LEARNED {
                 panic!("Can't mix learned and static features at the moment");
@@ -193,8 +175,8 @@ impl<const N: usize> MnistEncoder<N> {
         }
     }
 
-    fn encode_static(&self, image: &Image) -> BinaryHDV<N> {
-        let mut accumulator = BinaryAccumulator::new();
+    fn encode_static(&self, image: &Image) -> T {
+        let mut accumulator = T::Accumulator::new();
         const EDGE_THRESHOLD: i16 = 0; // tunable
         let pixels = image.as_u8_array();
         let width = image.width();
@@ -290,7 +272,7 @@ impl<const N: usize> MnistEncoder<N> {
         for image in images {
             for patch_view in slide_3x3_window(image) {
                 // Encode the patch's visual pattern
-                let mut patch_accumulator = BinaryAccumulator::new();
+                let mut patch_accumulator = T::Accumulator::new();
                 for (i, &intensity) in patch_view.pixels.iter().enumerate() {
                     if intensity > 0 {
                         // The pixel's representation within the patch
@@ -300,7 +282,7 @@ impl<const N: usize> MnistEncoder<N> {
                         patch_accumulator.add(&pixel_hdv, weight);
                     }
                 }
-                if !patch_accumulator.is_empty() {
+                if patch_accumulator.count() != 0.0 {
                     all_patch_vectors.push(patch_accumulator.finalize());
                 }
             }
@@ -315,14 +297,14 @@ impl<const N: usize> MnistEncoder<N> {
         self.learned_features = Some(kmeans_result.centroids);
     }
 
-    fn _encode_learned(&self, image: &Image) -> BinaryHDV<N> {
-        let mut image_accumulator = BinaryAccumulator::new();
+    fn _encode_learned(&self, image: &Image) -> T {
+        let mut image_accumulator = T::Accumulator::new();
         let learned_features = self.learned_features.as_ref()
         .expect("encode_learned called before learn_features_from_patches. Features have not been trained.");
 
         for patch_view in slide_3x3_window(image) {
             // Encode the current patch's pattern
-            let mut patch_accumulator = BinaryAccumulator::new();
+            let mut patch_accumulator = T::Accumulator::new();
             //let mut total_patch_intensity = 0.0;
             for (i, &intensity) in patch_view.pixels.iter().enumerate() {
                 if intensity > 0 {
@@ -334,20 +316,16 @@ impl<const N: usize> MnistEncoder<N> {
                 }
             }
 
-            if patch_accumulator.is_empty() {
+            if patch_accumulator.count() == 0.0 {
                 continue;
             }
 
             let current_patch_hdv = patch_accumulator.finalize();
 
             // Find the closest learned feature
-            let (best_feature, dist) = learned_features
-                .iter()
-                .map(|feature| (feature, feature.hamming_distance(&current_patch_hdv)))
-                .min_by_key(|&(_feature, dist)| dist)
-                .unwrap(); // Using a map to get both the feature and the distance
-
-            let similarity = 1.0 - (dist as f64 / BinaryHDV::<N>::DIM as f64);
+            let (idx, dist) = nearest(&current_patch_hdv, learned_features);
+            let best_feature = &learned_features[idx];
+            let similarity = 1.0 - dist;
             let final_weight = similarity.powi(2); //emphasise strong matches
             //let final_weight = total_patch_intensity / (255.0 * 9.0); // Normalize total intensity
 
@@ -355,12 +333,12 @@ impl<const N: usize> MnistEncoder<N> {
             let absolute_position_idx = patch_view.y * 28 + patch_view.x;
             let feature_at_position = self.positions[absolute_position_idx].bind(best_feature);
 
-            image_accumulator.add(&feature_at_position, final_weight);
+            image_accumulator.add(&feature_at_position, final_weight as f64);
         }
         image_accumulator.finalize()
     }
 
-    fn encode_learned_att(&self, image: &Image) -> BinaryHDV<N> {
+    fn encode_learned_att(&self, image: &Image) -> T {
         let learned_features = self
             .learned_features
             .as_ref()
@@ -368,16 +346,16 @@ impl<const N: usize> MnistEncoder<N> {
 
         // --- PHASE 1: TOKENIZATION ---
         // Extract patches and find their nearest semantic centroid.
-        struct Token<const N: usize> {
-            feature: BinaryHDV<N>,
+        struct Token<T: HyperVector> {
+            feature: T,
             pos_idx: usize,
             weight: f64,
         }
 
-        let mut tokens: Vec<Token<N>> = Vec::new();
+        let mut tokens: Vec<Token<T>> = Vec::new();
 
         for patch_view in slide_3x3_window(image) {
-            let mut patch_accum = BinaryAccumulator::new();
+            let mut patch_accum = T::Accumulator::new();
             for (i, &intensity) in patch_view.pixels.iter().enumerate() {
                 if intensity > 0 {
                     let pixel_hdv = self.relative_patch_positions[i]
@@ -386,24 +364,21 @@ impl<const N: usize> MnistEncoder<N> {
                 }
             }
 
-            if patch_accum.is_empty() {
+            if patch_accum.count() == 0.0 {
                 continue;
             }
             let current_patch_hdv = patch_accum.finalize();
 
             // Find closest learned feature
-            let (best_feature, dist) = learned_features
-                .iter()
-                .map(|f| (f, f.hamming_distance(&current_patch_hdv)))
-                .min_by_key(|&(_, d)| d)
-                .unwrap();
+            let (idx, dist) = nearest(&current_patch_hdv, learned_features);
+            let best_feature = &learned_features[idx];
 
-            let similarity = 1.0 - (dist as f64 / BinaryHDV::<N>::DIM as f64);
+            let similarity = 1.0 - dist;
 
             tokens.push(Token {
                 feature: best_feature.clone(),
                 pos_idx: patch_view.y * 28 + patch_view.x,
-                weight: similarity.powi(2),
+                weight: similarity.powi(2) as f64,
             });
         }
 
@@ -413,29 +388,29 @@ impl<const N: usize> MnistEncoder<N> {
         let mut attended_features = Vec::with_capacity(tokens.len());
 
         for i in 0..tokens.len() {
-            let mut context_accum = BinaryAccumulator::new();
+            let mut context_accum = T::Accumulator::new();
             let query = &tokens[i].feature;
 
             for token in &tokens {
                 // We compare Query to Key (both are unbound features)
-                let dist = query.hamming_distance(&token.feature);
-                let score = 1.0 - (dist as f64 / BinaryHDV::<N>::DIM as f64);
+                let dist = query.distance(&token.feature);
+                let score = 1.0f32 - dist;
 
                 // "Softmax" surrogate: only attend to semantically similar patches
                 if score > 0.75 {
-                    context_accum.add(&token.feature, score.powi(4));
+                    context_accum.add(&token.feature, score.powi(4) as f64);
                 }
             }
 
             // Update feature with its global context
             let context_vec = context_accum.finalize();
-            let h = BinaryHDV::bundle(&[query, &context_vec]);
+            let h = T::bundle(&[query, &context_vec]);
             attended_features.push(h);
         }
 
         // --- PHASE 3: SPATIAL BINDING & AGGREGATION ---
         // Now we XOR the context-aware features with their coordinates.
-        let mut image_accumulator = BinaryAccumulator::new();
+        let mut image_accumulator = T::Accumulator::new();
 
         for (i, token) in tokens.iter().enumerate() {
             let context_aware_feature = &attended_features[i];

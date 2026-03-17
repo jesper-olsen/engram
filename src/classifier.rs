@@ -1,12 +1,12 @@
-use hypervector::binary_hdv::BinaryHDV;
+use hypervector::HyperVector;
 use mnist::Image;
 
 pub trait ImageClassifier {
     fn predict(&self, im: &Image) -> u8;
 }
 
-pub trait HdvClassifier<const N: usize>: ImageClassifier {
-    fn predict_hdv(&self, h: &BinaryHDV<N>) -> u8;
+pub trait HdvClassifier<T: HyperVector>: ImageClassifier {
+    fn predict_hdv(&self, h: &T) -> u8;
 }
 
 /// Shared accuracy calculation

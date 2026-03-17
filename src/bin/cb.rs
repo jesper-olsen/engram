@@ -1,6 +1,9 @@
 use engram::MnistEncoder;
 use engram::kmeans::KMeans;
-use hypervector::{HyperVector, binary_hdv::BinaryHDV, hdv};
+use hypervector::{
+    HyperVector, binary_hdv::BinaryHDV, bipolar_hdv::BipolarHDV, complex_hdv::ComplexHDV, hdv,
+    modular_hdv::ModularHDV, real_hdv::RealHDV,
+};
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
 use rand::SeedableRng;
@@ -51,9 +54,11 @@ fn classify<T: HyperVector>(test_hvs: &[T], labels: &[u8], models: &[KMeans<T>])
 fn main() -> Result<(), MnistError> {
     const TOTAL_BITS: usize = 6400;
     hdv!(binary, HDV, TOTAL_BITS);
+    //hdv!(bipolar, HDV, TOTAL_BITS);
+    //hdv!(modular, HDV, TOTAL_BITS);
 
     let mut rng = StdRng::seed_from_u64(42);
-    let imem = MnistEncoder::<100>::new(&mut rng)
+    let imem = MnistEncoder::<HDV>::new(&mut rng)
         .with_feature_pixel_bag()
         .with_feature_edges();
     let data = Mnist::load("MNIST")?;

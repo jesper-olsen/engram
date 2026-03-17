@@ -1,7 +1,7 @@
 use engram::MnistEncoder;
 use hopfield::hopfield::Hopfield;
 use hopfield::state::State;
-use hypervector::binary_hdv::BinaryHDV;
+use hypervector::{binary_hdv::BinaryHDV, hdv};
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
 use rand::SeedableRng;
@@ -9,7 +9,9 @@ use rand::rngs::StdRng;
 use std::io::Write;
 
 const N: usize = 100;
-const IDIM: usize = N * usize::BITS as usize + 2 * 8;
+const TOTAL_BITS: usize = N * usize::BITS as usize;
+hdv!(binary, HDV, TOTAL_BITS);
+const IDIM: usize = N * usize::BITS as usize + 2 * 8; // same as HDV + 2 bytes for one-hot label (10 bits used)
 
 fn is_power_of_two(n: u16) -> bool {
     let n = n & 0b11_1111_1111;
@@ -37,6 +39,7 @@ fn classify(net: &Hopfield<IDIM>, x: &mut State<IDIM>) -> Vec<u8> {
 }
 
 fn image_to_state<const N: usize>(img_hdv: &BinaryHDV<N>, digit: u8) -> State<IDIM> {
+    // Note - this mapping assumes BinaryHDV, because it copies the bit representation directly
     let one_hot: u16 = 1 << digit;
 
     // Lazy iterators over label and image data
@@ -49,7 +52,7 @@ fn image_to_state<const N: usize>(img_hdv: &BinaryHDV<N>, digit: u8) -> State<ID
 fn main() -> Result<(), MnistError> {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
-    let imem = MnistEncoder::<N>::new(&mut rng)
+    let imem = MnistEncoder::<HDV>::new(&mut rng)
         .with_feature_pixel_bag()
         .with_feature_edges();
     let data = Mnist::load("MNIST")?;
