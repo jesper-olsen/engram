@@ -1,4 +1,4 @@
-use hypervector::{HyperVector,Accumulator};
+use hypervector::{HyperVector,Accumulator,nearest};
 use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
@@ -83,16 +83,7 @@ impl<const N: usize> KMeans<N> {
 
     // Finds the index and distance of the nearest centroid to a given vector.
     pub fn nearest(&self, hdv: &BinaryHDV<N>) -> (u32, f32) {
-        let mut min_dist = f32::MAX;
-        let mut best_cluster = 0;
-
-        for (j, centroid) in self.centroids.iter().enumerate() {
-            let dist = hdv.distance(centroid);
-            if dist < min_dist {
-                min_dist = dist;
-                best_cluster = j;
-            }
-        }
-        (best_cluster as u32, min_dist)
+        let (idx,dist)=nearest(hdv,&self.centroids);
+        (idx.try_into().unwrap(),dist)
     }
 }
