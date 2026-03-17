@@ -1,41 +1,31 @@
 use engram::MnistEncoder;
 use engram::kmeans::KMeans;
-use hypervector::{HyperVector, binary_hdv::BinaryHDV};
+use hypervector::{HyperVector, binary_hdv::BinaryHDV, hdv};
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
-//use rand::rng;
-//use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
-fn compute_codebooks<const N: usize>(
-    train_hvs: &[BinaryHDV<N>],
-    labels: &[u8],
-    k: usize,
-) -> Vec<KMeans<N>> {
+//fn compute_codebooks<const N: usize>(
+fn compute_codebooks<T: HyperVector>(train_hvs: &[T], labels: &[u8], k: usize) -> Vec<KMeans<T>> {
     let mut cbs = Vec::with_capacity(10);
-    for digit in 0..10 {
-        // Select all encoded images (hypervectors) whose label == i
-        let hvs: Vec<&BinaryHDV<N>> = train_hvs
+    for digit in 0..10u8 {
+        let hvs: Vec<&T> = train_hvs
             .iter()
             .zip(labels.iter())
             .filter(|&(_, &lab)| lab == digit)
             .map(|(h, _)| h)
             .collect();
 
-        //println!("Digit {digit}: {} samples", hvs.len());
-
         let mut cb = KMeans::new(&hvs, k);
-        let max_iter = 100;
-        let verbose = false;
-        cb.train(&hvs, max_iter, verbose);
+        cb.train(&hvs, 100, false);
         cbs.push(cb);
     }
     cbs
 }
 
-fn classify<const N: usize>(test_hvs: &[BinaryHDV<N>], labels: &[u8], models: &[KMeans<N>]) {
+fn classify<T: HyperVector>(test_hvs: &[T], labels: &[u8], models: &[KMeans<T>]) {
     let mut correct = 0;
     for (hv, digit) in test_hvs.iter().zip(labels.iter()) {
         let mut min_dist = f32::MAX;
@@ -50,7 +40,6 @@ fn classify<const N: usize>(test_hvs: &[BinaryHDV<N>], labels: &[u8], models: &[
         correct += (best_cb as u8 == *digit) as usize;
     }
     let total = labels.len();
-
     if total > 0 {
         println!(
             "Accuracy {correct}/{total} = {:.2}%",
@@ -60,42 +49,41 @@ fn classify<const N: usize>(test_hvs: &[BinaryHDV<N>], labels: &[u8], models: &[
 }
 
 fn main() -> Result<(), MnistError> {
-    const N: usize = 100;
-    let seed = 42;
-    let mut rng = StdRng::seed_from_u64(seed);
-    let imem = MnistEncoder::<N>::new(&mut rng)
+    const TOTAL_BITS: usize = 6400;
+    hdv!(binary, HDV, TOTAL_BITS);
+
+    let mut rng = StdRng::seed_from_u64(42);
+    let imem = MnistEncoder::<100>::new(&mut rng)
         .with_feature_pixel_bag()
         .with_feature_edges();
     let data = Mnist::load("MNIST")?;
     println!("Read {} training labels", data.train_labels.len());
 
     println!("Encoding training images...");
-    let train_hvs: Vec<BinaryHDV<N>> = data
+    let train_hvs: Vec<HDV> = data
         .train_images
         .par_iter()
         .map(|im| imem.encode(im))
         .collect();
 
     println!("Encoding test images...");
-    let test_hvs: Vec<BinaryHDV<N>> = data
+    let test_hvs: Vec<HDV> = data
         .test_images
         .par_iter()
         .map(|im| imem.encode(im))
         .collect();
 
-    let cbs: Vec<KMeans<N>> = compute_codebooks(&train_hvs, &data.train_labels, 1);
+    let cbs: Vec<KMeans<HDV>> = compute_codebooks(&train_hvs, &data.train_labels, 1);
 
     println!("\n--- Centroid-to-Centroid Distances ---");
-    let total_bits = N * std::mem::size_of::<usize>() * 8;
-    println!("(Total bits = {total_bits})");
-
+    println!("(Total bits = {TOTAL_BITS})");
     println!("        0      1      2      3      4      5      6      7      8      9");
     println!("------------------------------------------------------------------------");
     for d1 in 0..10 {
         print!("{d1}: ");
         for d2 in 0..10 {
-            let dist = cbs[d1].centroids[0].hamming_distance(&cbs[d2].centroids[0]);
-            print!("{dist:6} ");
+            let dist = cbs[d1].centroids[0].distance(&cbs[d2].centroids[0]);
+            print!("{dist:6.4} ");
         }
         println!();
     }
@@ -105,10 +93,9 @@ fn main() -> Result<(), MnistError> {
     println!("True    0       1       2       3       4       5       6       7       8       9");
     println!("----------------------------------------------------------------------------------");
 
-    let centroids: Vec<BinaryHDV<N>> = cbs.iter().map(|cb| cb.centroids[0].clone()).collect();
+    let centroids: Vec<HDV> = cbs.iter().map(|cb| cb.centroids[0].clone()).collect();
     for true_digit in 0..10u8 {
-        // Filter test HVs to get only those for the current true_digit
-        let digit_test_hvs: Vec<&BinaryHDV<N>> = test_hvs
+        let digit_test_hvs: Vec<&HDV> = test_hvs
             .iter()
             .zip(data.test_labels.iter())
             .filter(|&(_, &label)| label == true_digit)
@@ -121,23 +108,20 @@ fn main() -> Result<(), MnistError> {
         }
 
         print!("{true_digit:2} | ");
-
-        // For this set of HVs, calculate avg distance to EACH centroid
         for centroid in &centroids {
             let total_distance: f32 = digit_test_hvs
                 .par_iter()
                 .map(|&hdv| hdv.distance(centroid))
                 .sum();
-
             let avg_distance = total_distance / num_samples as f32;
-            print!("{avg_distance:<7.0} ");
+            print!("{avg_distance:<7.4} ");
         }
         println!();
     }
 
     println!("\nClassify - codebook size");
     for n in 1..=20 {
-        let cbs: Vec<KMeans<N>> = compute_codebooks(&train_hvs, &data.train_labels, n);
+        let cbs: Vec<KMeans<HDV>> = compute_codebooks(&train_hvs, &data.train_labels, n);
         print!("{n:2}: ");
         classify(&test_hvs, &data.test_labels, &cbs);
     }

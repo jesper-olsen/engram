@@ -1,47 +1,39 @@
-use hypervector::{HyperVector,Accumulator,nearest};
-use hypervector::binary_hdv::{BinaryAccumulator, BinaryHDV};
+use hypervector::{Accumulator, HyperVector, nearest};
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
 //use rayon::prelude::*;
 use std::borrow::Borrow;
 
-pub struct KMeans<const N: usize> {
+pub struct KMeans<H: HyperVector> {
     pub k: usize,
-    pub centroids: Vec<BinaryHDV<N>>,
+    pub centroids: Vec<H>,
     pub counts: Vec<usize>,
 }
 
-impl<const N: usize> KMeans<N> {
+impl<H: HyperVector> KMeans<H> {
     /// Creates a new KMeans model with initial centroids chosen randomly.
-    pub fn new<T: Borrow<BinaryHDV<N>> + Sync>(data: &[T], k: usize) -> Self {
+    pub fn new<T: Borrow<H>>(data: &[T], k: usize) -> Self {
+        // Borrow means the function accepts slice of either HyperVector or reference to HyperVector...
         assert!(k > 0 && k <= data.len(), "k must be > 0 and <= data length");
 
         // Simple random initialization.
         // TODO: implement K-Means++ initialisation.
-        let seed = 42;
-        let mut rng = StdRng::seed_from_u64(seed);
-        let centroids: Vec<BinaryHDV<N>> = data
+        let mut rng = StdRng::seed_from_u64(42);
+        let centroids: Vec<H> = data
             .sample(&mut rng, k)
             .map(|v| v.borrow().clone())
             .collect();
-
         Self {
             k,
             centroids,
-            counts: vec![0; k], // Initialize counts to zero
+            counts: vec![0; k],
         }
     }
 
     /// Trains the model until convergence or max_iters is reached.
-    pub fn train<T: Borrow<BinaryHDV<N>> + Sync>(
-        &mut self,
-        data: &[T],
-        max_iters: u32,
-        verbose: bool,
-    ) -> usize {
+    pub fn train<T: Borrow<H>>(&mut self, data: &[T], max_iters: u32, verbose: bool) -> usize {
         let mut last_total_dist = usize::MAX;
-
         if verbose {
             println!("Cluster {} examples", data.len());
         }
@@ -50,8 +42,6 @@ impl<const N: usize> KMeans<N> {
             if verbose {
                 println!("Iteration {i:3}: total distance = {total_dist:11}");
             }
-
-            // Convergence check
             if last_total_dist == total_dist {
                 if verbose {
                     println!("Converged after {i} iterations.");
@@ -63,27 +53,26 @@ impl<const N: usize> KMeans<N> {
         last_total_dist
     }
 
-    fn step<T: Borrow<BinaryHDV<N>> + Sync>(&mut self, data: &[T]) -> usize {
-        let mut accumulators: Vec<BinaryAccumulator<N>> =
-            (0..self.k).map(|_| BinaryAccumulator::new()).collect();
+    fn step<T: Borrow<H>>(&mut self, data: &[T]) -> usize {
+        let mut accumulators: Vec<H::Accumulator> =
+            (0..self.k).map(|_| H::Accumulator::default()).collect();
 
         let total_dist: usize = data
             .iter()
             .map(|v| {
                 let (idx, dist) = self.nearest(v.borrow());
-                accumulators[idx as usize].add(v.borrow(), 1.0);
+                accumulators[idx].add(v.borrow(), 1.0);
                 dist as usize
             })
             .sum();
-        self.centroids = accumulators.iter().map(|a| a.finalize()).collect();
-        self.counts = accumulators.iter().map(|acc| acc.count() as usize).collect();
 
+        self.centroids = accumulators.iter().map(|a| a.finalize()).collect();
+        self.counts = accumulators.iter().map(|a| a.count() as usize).collect();
         total_dist
     }
 
-    // Finds the index and distance of the nearest centroid to a given vector.
-    pub fn nearest(&self, hdv: &BinaryHDV<N>) -> (u32, f32) {
-        let (idx,dist)=nearest(hdv,&self.centroids);
-        (idx.try_into().unwrap(),dist)
+    /// Finds the index and distance of the nearest centroid to a given vector.
+    pub fn nearest(&self, hdv: &H) -> (usize, f32) {
+        nearest(hdv, &self.centroids)
     }
 }
