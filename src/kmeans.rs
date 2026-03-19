@@ -1,4 +1,4 @@
-use hypervector::{Accumulator, HyperVector, nearest};
+use hypervector::{Accumulator, HyperVector, UnitAccumulate, nearest};
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
@@ -54,20 +54,20 @@ impl<H: HyperVector> KMeans<H> {
     }
 
     fn step<T: Borrow<H>>(&mut self, data: &[T]) -> usize {
-        let mut accumulators: Vec<H::Accumulator> =
-            (0..self.k).map(|_| H::Accumulator::default()).collect();
+        let mut accumulators: Vec<H::UnitAccumulator> =
+            (0..self.k).map(|_| H::UnitAccumulator::default()).collect();
 
         let total_dist: usize = data
             .iter()
             .map(|v| {
                 let (idx, dist) = self.nearest(v.borrow());
-                accumulators[idx].add(v.borrow(), 1.0);
+                accumulators[idx].add(v.borrow());
                 dist as usize
             })
             .sum();
 
         self.centroids = accumulators.iter().map(|a| a.finalize()).collect();
-        self.counts = accumulators.iter().map(|a| a.count() as usize).collect();
+        self.counts = accumulators.iter().map(|a| a.count()).collect();
         total_dist
     }
 

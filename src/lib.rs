@@ -168,7 +168,6 @@ impl<T: HyperVector> MnistEncoder<T> {
             if self.features != FEATURE_LEARNED {
                 panic!("Can't mix learned and static features at the moment");
             }
-            //self.encode_learned(image)
             self.encode_learned_att(image)
         } else {
             self.encode_static(image)
@@ -297,47 +296,6 @@ impl<T: HyperVector> MnistEncoder<T> {
         self.learned_features = Some(kmeans_result.centroids);
     }
 
-    fn _encode_learned(&self, image: &Image) -> T {
-        let mut image_accumulator = T::Accumulator::new();
-        let learned_features = self.learned_features.as_ref()
-        .expect("encode_learned called before learn_features_from_patches. Features have not been trained.");
-
-        for patch_view in slide_3x3_window(image) {
-            // Encode the current patch's pattern
-            let mut patch_accumulator = T::Accumulator::new();
-            //let mut total_patch_intensity = 0.0;
-            for (i, &intensity) in patch_view.pixels.iter().enumerate() {
-                if intensity > 0 {
-                    let pixel_hdv = self.relative_patch_positions[i]
-                        .bind(self.intensities.encode(intensity as f32));
-                    let weight = intensity as f64 / 255.0;
-                    patch_accumulator.add(&pixel_hdv, weight);
-                    //total_patch_intensity += intensity as f64;
-                }
-            }
-
-            if patch_accumulator.count() == 0.0 {
-                continue;
-            }
-
-            let current_patch_hdv = patch_accumulator.finalize();
-
-            // Find the closest learned feature
-            let (idx, dist) = nearest(&current_patch_hdv, learned_features);
-            let best_feature = &learned_features[idx];
-            let similarity = 1.0 - dist;
-            let final_weight = similarity.powi(2); //emphasise strong matches
-            //let final_weight = total_patch_intensity / (255.0 * 9.0); // Normalize total intensity
-
-            // Bind the feature with its ABSOLUTE position in the image
-            let absolute_position_idx = patch_view.y * 28 + patch_view.x;
-            let feature_at_position = self.positions[absolute_position_idx].bind(best_feature);
-
-            image_accumulator.add(&feature_at_position, final_weight as f64);
-        }
-        image_accumulator.finalize()
-    }
-
     fn encode_learned_att(&self, image: &Image) -> T {
         let learned_features = self
             .learned_features
@@ -364,8 +322,8 @@ impl<T: HyperVector> MnistEncoder<T> {
                 }
             }
 
-            if patch_accum.count() == 0.0 {
-                continue;
+            if patch_accum.count()==0.0 {
+                continue
             }
             let current_patch_hdv = patch_accum.finalize();
 

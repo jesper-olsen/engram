@@ -1,5 +1,7 @@
 use engram::{Ensemble, HdvClassifier, ImageClassifier, MnistEncoder, calc_accuracy};
-use hypervector::{Accumulator, HyperVector, binary_hdv::BinaryHDV, modular_hdv::ModularHDV, hdv, nearest};
+use hypervector::{
+    Accumulator, HyperVector, binary_hdv::BinaryHDV, hdv, modular_hdv::ModularHDV, nearest,
+};
 use mnist::{self, Image, Mnist, error::MnistError};
 use rand::Rng;
 use rand::SeedableRng;
