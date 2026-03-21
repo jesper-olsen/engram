@@ -1,4 +1,4 @@
-use hypervector::{Accumulator, HyperVector, UnitAccumulate, nearest};
+use hypervector::{HyperVector, UnitAccumulator, nearest};
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
