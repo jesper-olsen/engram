@@ -66,7 +66,7 @@ impl<H: HyperVector> KMeans<H> {
             })
             .sum();
 
-        self.centroids = accumulators.iter().map(|a| a.finalize()).collect();
+        self.centroids = accumulators.iter_mut().map(|a| a.finalize()).collect();
         self.counts = accumulators.iter().map(|a| a.count()).collect();
         total_dist
     }

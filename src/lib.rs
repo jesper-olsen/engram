@@ -322,8 +322,8 @@ impl<T: HyperVector> MnistEncoder<T> {
                 }
             }
 
-            if patch_accum.count()==0.0 {
-                continue
+            if patch_accum.count() == 0.0 {
+                continue;
             }
             let current_patch_hdv = patch_accum.finalize();
 

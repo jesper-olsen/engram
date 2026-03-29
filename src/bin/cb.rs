@@ -1,8 +1,10 @@
 use engram::MnistEncoder;
 use engram::kmeans::KMeans;
 use hypervector::{
-    HyperVector, binary_hdv::BinaryHDV, bipolar_hdv::BipolarHDV, complex_hdv::ComplexHDV, hdv,
-    modular_hdv::ModularHDV, real_hdv::RealHDV,
+    HyperVector,
+    binary_hdv::BinaryHDV,
+    hdv, //bipolar_hdv::BipolarHDV, complex_hdv::ComplexHDV,
+         //modular_hdv::ModularHDV, real_hdv::RealHDV,
 };
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
