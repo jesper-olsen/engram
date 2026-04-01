@@ -1,63 +1,54 @@
 use engram::MnistEncoder;
-use engram::kmeans::KMeans;
 use hypervector::{
-    HyperVector,
-    binary_hdv::BinaryHDV,
-    hdv, //bipolar_hdv::BipolarHDV, complex_hdv::ComplexHDV,
-         //modular_hdv::ModularHDV, real_hdv::RealHDV,
+    HyperVector, binary_hdv::BinaryHDV, hdv, kmeans::KMeans, trainer::Classifier,
+    //trainer::PrototypeModel,
 };
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
+use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
-//fn compute_codebooks<const N: usize>(
-fn compute_codebooks<T: HyperVector>(train_hvs: &[T], labels: &[u8], k: usize) -> Vec<KMeans<T>> {
-    let mut cbs = Vec::with_capacity(10);
-    for digit in 0..10u8 {
-        let hvs: Vec<&T> = train_hvs
-            .iter()
-            .zip(labels.iter())
-            .filter(|&(_, &lab)| lab == digit)
-            .map(|(h, _)| h)
-            .collect();
+pub struct KMeansClassifier<T: HyperVector>(pub Vec<KMeans<T>>);
 
-        let mut cb = KMeans::new(&hvs, k);
-        cb.train(&hvs, 100, false);
-        cbs.push(cb);
+impl<T: HyperVector + Send + Sync> Classifier<T> for KMeansClassifier<T> {
+    fn predict(&self, h: &T) -> usize {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(i, cb)| (i, cb.nearest(h).1))
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .map(|(i, _)| i)
+            .unwrap()
     }
-    cbs
 }
 
-fn classify<T: HyperVector>(test_hvs: &[T], labels: &[u8], models: &[KMeans<T>]) {
-    let mut correct = 0;
-    for (hv, digit) in test_hvs.iter().zip(labels.iter()) {
-        let mut min_dist = f32::MAX;
-        let mut best_cb = 0;
-        for (i, cb) in models.iter().enumerate() {
-            let (_cluster, dist) = cb.nearest(hv);
-            if dist < min_dist {
-                min_dist = dist;
-                best_cb = i;
-            }
-        }
-        correct += (best_cb as u8 == *digit) as usize;
-    }
-    let total = labels.len();
-    if total > 0 {
-        println!(
-            "Accuracy {correct}/{total} = {:.2}%",
-            100.0 * correct as f64 / total as f64
-        );
-    }
+fn compute_codebooks<T: HyperVector + Send + Sync, R: Rng>(
+    train_hvs: &[T],
+    labels: &[u8],
+    k: usize,
+    rng: &mut R,
+) -> KMeansClassifier<T> {
+    let codebooks = (0..10u8)
+        .map(|digit| {
+            let hvs: Vec<&T> = train_hvs
+                .iter()
+                .zip(labels.iter())
+                .filter(|&(_, &lab)| lab == digit)
+                .map(|(h, _)| h)
+                .collect();
+            let mut cb = KMeans::new(&hvs, k, rng);
+            cb.train(&hvs, 100, false);
+            cb
+        })
+        .collect();
+    KMeansClassifier(codebooks)
 }
 
 fn main() -> Result<(), MnistError> {
     const TOTAL_BITS: usize = 6400;
     hdv!(binary, HDV, TOTAL_BITS);
-    //hdv!(bipolar, HDV, TOTAL_BITS);
-    //hdv!(modular, HDV, TOTAL_BITS);
 
     let mut rng = StdRng::seed_from_u64(42);
     let imem = MnistEncoder::<HDV>::new(&mut rng)
@@ -80,8 +71,11 @@ fn main() -> Result<(), MnistError> {
         .map(|im| imem.encode(im))
         .collect();
 
-    let cbs: Vec<KMeans<HDV>> = compute_codebooks(&train_hvs, &data.train_labels, 1);
-
+    let classifier = compute_codebooks(&train_hvs, &data.train_labels, 1, &mut rng);
+    //let prototypes: [HDV; 10] = std::array::from_fn(|i| {
+    //    classifier.0[i].centroids[0].clone()
+    //});
+    //let classifier = PrototypeModel { prototypes };
     println!("\n--- Centroid-to-Centroid Distances ---");
     println!("(Total bits = {TOTAL_BITS})");
     println!("        0      1      2      3      4      5      6      7      8      9");
@@ -89,7 +83,7 @@ fn main() -> Result<(), MnistError> {
     for d1 in 0..10 {
         print!("{d1}: ");
         for d2 in 0..10 {
-            let dist = cbs[d1].centroids[0].distance(&cbs[d2].centroids[0]);
+            let dist = classifier.0[d1].centroids[0].distance(&classifier.0[d2].centroids[0]);
             print!("{dist:6.4} ");
         }
         println!();
@@ -100,7 +94,6 @@ fn main() -> Result<(), MnistError> {
     println!("True    0       1       2       3       4       5       6       7       8       9");
     println!("----------------------------------------------------------------------------------");
 
-    let centroids: Vec<HDV> = cbs.iter().map(|cb| cb.centroids[0].clone()).collect();
     for true_digit in 0..10u8 {
         let digit_test_hvs: Vec<&HDV> = test_hvs
             .iter()
@@ -115,10 +108,10 @@ fn main() -> Result<(), MnistError> {
         }
 
         print!("{true_digit:2} | ");
-        for centroid in &centroids {
+        for cb in &classifier.0 {
             let total_distance: f32 = digit_test_hvs
                 .par_iter()
-                .map(|&hdv| hdv.distance(centroid))
+                .map(|&hdv| hdv.distance(&cb.centroids[0]))
                 .sum();
             let avg_distance = total_distance / num_samples as f32;
             print!("{avg_distance:<7.4} ");
@@ -128,9 +121,10 @@ fn main() -> Result<(), MnistError> {
 
     println!("\nClassify - codebook size");
     for n in 1..=20 {
-        let cbs: Vec<KMeans<HDV>> = compute_codebooks(&train_hvs, &data.train_labels, n);
+        let classifier = compute_codebooks(&train_hvs, &data.train_labels, n, &mut rng);
         print!("{n:2}: ");
-        classify(&test_hvs, &data.test_labels, &cbs);
+        let (correct, acc) = classifier.accuracy(&test_hvs, &data.test_labels);
+        println!("Accuracy {correct}/{}={:.2}%", test_hvs.len(), acc * 100.0);
     }
 
     Ok(())

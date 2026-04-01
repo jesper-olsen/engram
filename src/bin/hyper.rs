@@ -3,25 +3,37 @@ use hypervector::{
     HyperVector,
     binary_hdv::BinaryHDV,
     hdv,
-    trainer::{PerceptronTrainer, PrototypeModel},
+    trainer::{Classifier, PaTrainer, PaVariant, PerceptronTrainer, PrototypeModel},
 };
 use mnist::{self, Image, Mnist, error::MnistError};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
+use std::io::Write;
 
-pub struct EncodedModel<T: HyperVector, const N: usize> {
-    pub model: PrototypeModel<T, N>,
+pub struct EncodedModel<T: HyperVector, C: Classifier<T>> {
+    pub model: C,
     pub encoder: MnistEncoder<T>,
 }
 
-impl<T: HyperVector, const N: usize> ImageClassifier for EncodedModel<T, N> {
+impl<T: HyperVector, C: Classifier<T>> ImageClassifier for EncodedModel<T, C> {
     fn predict(&self, im: &Image) -> u8 {
         let h = self.encoder.encode(im);
         self.model.predict(&h) as u8
     }
 }
 
+//pub struct EncodedModel<T: HyperVector, const N: usize> {
+//    pub model: PrototypeModel<T, N>,
+//    pub encoder: MnistEncoder<T>,
+//}
+
+//impl<T: HyperVector, const N: usize> ImageClassifier for EncodedModel<T, N> {
+//    fn predict(&self, im: &Image) -> u8 {
+//        let h = self.encoder.encode(im);
+//        self.model.predict(&h) as u8
+//    }
+//}
 const NUM_CLASSES: usize = 10;
 
 fn main() -> Result<(), MnistError> {
@@ -31,7 +43,9 @@ fn main() -> Result<(), MnistError> {
     //let data = Mnist::load("MNISTfashion")?;
     println!("Read {} training labels", data.train_labels.len());
     let ensemble_size = 5;
-    let mut ensemble: Ensemble<EncodedModel<HDV, NUM_CLASSES>> =
+    //let mut ensemble: Ensemble<EncodedModel<HDV, NUM_CLASSES>> =
+    //    Ensemble::with_capacity(ensemble_size);
+    let mut ensemble: Ensemble<EncodedModel<HDV, PrototypeModel<HDV, NUM_CLASSES>>> =
         Ensemble::with_capacity(ensemble_size);
 
     let seed = 42;
@@ -53,11 +67,15 @@ fn main() -> Result<(), MnistError> {
             .map(|im| encoder.encode(im))
             .collect();
 
-        let mut trainer = PerceptronTrainer::<HDV, u8, _, 10>::new(
-            train_hvs,
-            data.train_labels.clone(), // or collect into a Vec<u8>
-            rng,
-        );
+        let mut trainer = PerceptronTrainer::<HDV, u8, _, 10>::new(train_hvs, data.train_labels.clone(), rng);
+        //let mut trainer = PaTrainer::<HDV, u8, _, 10>::new(
+        //    train_hvs,
+        //    data.train_labels.clone(), // or collect into a Vec<u8>
+        //    //PaVariant::Pa,
+        //    //PaVariant::PaI {c: 0.1 },
+        //    PaVariant::PaII { c: 1.0 },
+        //    rng,
+        //);
 
         // drive epochs manually
         for epoch in 1..=n_epochs {
@@ -68,6 +86,8 @@ fn main() -> Result<(), MnistError> {
                 r.total(),
                 r.accuracy() * 100.0
             );
+            std::io::stdout().flush().unwrap();
+
             if r.errors == 0 {
                 break;
             }

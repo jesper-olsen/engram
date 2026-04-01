@@ -10,13 +10,11 @@ mod ensemble;
 pub use classifier::{HdvClassifier, ImageClassifier, calc_accuracy};
 pub use ensemble::Ensemble;
 
-use crate::kmeans::KMeans;
 use hypervector::encoding::ScalarEncoder;
+use hypervector::kmeans::KMeans;
 use hypervector::{Accumulator, HyperVector, nearest};
 use mnist::Image;
 use rand::Rng;
-
-pub mod kmeans;
 
 /// A 3x3 view into an image, containing the pixel data and the center coordinate.
 #[derive(Debug, Clone, Copy)]
@@ -157,9 +155,9 @@ impl<T: HyperVector> MnistEncoder<T> {
         self
     }
 
-    pub fn train_on(mut self, images: &[Image], _labels: &[u8]) -> Self {
+    pub fn train_on(mut self, images: &[Image], _labels: &[u8], rng: &mut impl Rng) -> Self {
         self.features |= FEATURE_LEARNED;
-        self.learn_features_from_patches(images);
+        self.learn_features_from_patches(images, rng);
         self
     }
 
@@ -265,7 +263,7 @@ impl<T: HyperVector> MnistEncoder<T> {
         accumulator.finalize()
     }
 
-    fn learn_features_from_patches(&mut self, images: &[Image]) {
+    fn learn_features_from_patches(&mut self, images: &[Image], rng: &mut impl Rng) {
         let mut all_patch_vectors = Vec::new();
 
         for image in images {
@@ -290,7 +288,7 @@ impl<T: HyperVector> MnistEncoder<T> {
         let num_features = 32;
         let max_iters = 100;
         let verbose = true;
-        let mut kmeans_result = KMeans::new(&all_patch_vectors, num_features);
+        let mut kmeans_result = KMeans::new(&all_patch_vectors, num_features, rng);
         kmeans_result.train(&all_patch_vectors, max_iters, verbose);
 
         self.learned_features = Some(kmeans_result.centroids);

@@ -11,23 +11,21 @@ pub trait HdvClassifier<T: HyperVector>: ImageClassifier {
 
 /// Shared accuracy calculation
 pub fn calc_accuracy<M: ImageClassifier + Sync>(
-    test_images: &[Image],
-    test_labels: &[u8],
+    images: &[Image],
+    labels: &[u8],
     model: &M,
 ) -> (usize, usize, f64) {
     use rayon::prelude::*;
 
-    let correct: usize = test_images
+    assert!(images.len() == labels.len());
+    assert!(images.len() > 0);
+    let correct: usize = images
         .par_iter()
-        .zip(test_labels)
+        .zip(labels)
         .filter(|&(im, &label)| model.predict(im) == label)
         .count();
 
-    let total = test_images.len();
-    let acc = if total > 0 {
-        100.0 * correct as f64 / total as f64
-    } else {
-        0.0
-    };
+    let total = images.len();
+    let acc = 100.0 * correct as f64 / images.len() as f64;
     (correct, total, acc)
 }
