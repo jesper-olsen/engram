@@ -1,6 +1,6 @@
 use engram::MnistEncoder;
 use hypervector::{
-    HyperVector, binary_hdv::BinaryHDV, hdv, kmeans::KMeans, trainer::Classifier,
+    HyperVector, binary_hdv::BinaryHDV, hdv, trainer::{Classifier, kmeans::KMeans},
     //trainer::PrototypeModel,
 };
 use mnist::error::MnistError;

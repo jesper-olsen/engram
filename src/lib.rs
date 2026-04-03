@@ -11,7 +11,7 @@ pub use classifier::{HdvClassifier, ImageClassifier, calc_accuracy};
 pub use ensemble::Ensemble;
 
 use hypervector::encoding::ScalarEncoder;
-use hypervector::kmeans::KMeans;
+use hypervector::trainer::kmeans::KMeans;
 use hypervector::{Accumulator, HyperVector, nearest};
 use mnist::Image;
 use rand::Rng;
