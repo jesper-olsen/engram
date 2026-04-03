@@ -3,9 +3,10 @@ use hypervector::{
     HyperVector,
     binary_hdv::BinaryHDV,
     hdv,
-    trainer::{Classifier, pa::PaTrainer, pa::PaVariant, perceptron::PerceptronTrainer, PrototypeModel},
+    trainer::{MultiPrototypeModel, Classifier, pa::PaTrainer, pa::PaVariant, perceptron::PerceptronTrainer, PrototypeModel},
 };
-use hypervector::trainer::multi_perceptron::{PerceptronMultiTrainer,MultiPrototypeModel};
+use hypervector::trainer::multi_perceptron::PerceptronMultiTrainer;
+use hypervector::trainer::lvq::LvqTrainer;
 use mnist::{self, Image, Mnist, error::MnistError};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -24,17 +25,6 @@ impl<T: HyperVector, C: Classifier<T>> ImageClassifier for EncodedModel<T, C> {
     }
 }
 
-//pub struct EncodedModel<T: HyperVector, const N: usize> {
-//    pub model: PrototypeModel<T, N>,
-//    pub encoder: MnistEncoder<T>,
-//}
-
-//impl<T: HyperVector, const N: usize> ImageClassifier for EncodedModel<T, N> {
-//    fn predict(&self, im: &Image) -> u8 {
-//        let h = self.encoder.encode(im);
-//        self.model.predict(&h) as u8
-//    }
-//}
 const NUM_CLASSES: usize = 10;
 
 fn main() -> Result<(), MnistError> {
@@ -44,7 +34,6 @@ fn main() -> Result<(), MnistError> {
     //let data = Mnist::load("MNISTfashion")?;
     println!("Read {} training labels", data.train_labels.len());
     let ensemble_size = 5;
-    //let mut ensemble: Ensemble<EncodedModel<HDV, NUM_CLASSES>> = Ensemble::with_capacity(ensemble_size);
     let mut ensemble: Ensemble<EncodedModel<HDV, PrototypeModel<HDV, NUM_CLASSES>>> =
     //let mut ensemble: Ensemble<EncodedModel<HDV, MultiPrototypeModel<HDV>>> =
         Ensemble::with_capacity(ensemble_size);
@@ -68,8 +57,12 @@ fn main() -> Result<(), MnistError> {
             .map(|im| encoder.encode(im))
             .collect();
 
-        //let mut trainer = PerceptronMultiTrainer::<HDV, _>::new(train_hvs, data.train_labels.clone(), NUM_CLASSES, 3, rng);
         let mut trainer = PerceptronTrainer::<HDV, u8, _, 10>::new(train_hvs, data.train_labels.clone(), rng);
+
+        //let mut trainer = PerceptronMultiTrainer::<HDV, _>::new(train_hvs, data.train_labels.clone(), NUM_CLASSES, 3, rng);
+
+        //let mut trainer = LvqTrainer::<HDV, _>::new(train_hvs, data.train_labels.clone(), NUM_CLASSES, 3, rng, 0.25);
+
         //let mut trainer = PaTrainer::<HDV, u8, _, 10>::new(
         //    train_hvs,
         //    data.train_labels.clone(), // or collect into a Vec<u8>
