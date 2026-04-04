@@ -123,8 +123,8 @@ fn main() -> Result<(), MnistError> {
     for n in 1..=20 {
         let classifier = compute_codebooks(&train_hvs, &data.train_labels, n, &mut rng);
         print!("{n:2}: ");
-        let (correct, acc) = classifier.accuracy(&test_hvs, &data.test_labels);
-        println!("Accuracy {correct}/{}={:.2}%", test_hvs.len(), acc * 100.0);
+        let (correct, _errors, acc) = classifier.accuracy(&test_hvs, &data.test_labels);
+        println!("Accuracy {correct}/{}={acc:.2}%", test_hvs.len());
     }
 
     Ok(())
