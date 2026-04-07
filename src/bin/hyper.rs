@@ -57,7 +57,7 @@ fn main() -> Result<(), MnistError> {
             .map(|im| encoder.encode(im))
             .collect();
 
-        let mut trainer = PerceptronTrainer::<HDV, u8, _, 10>::new(train_hvs, data.train_labels.clone(), rng);
+        let mut trainer = PerceptronTrainer::<HDV, u8, _, 10>::new(&train_hvs, &data.train_labels, rng);
 
         //let mut trainer = PerceptronMultiTrainer::<HDV, _>::new(train_hvs, data.train_labels.clone(), NUM_CLASSES, 3, rng);
 
