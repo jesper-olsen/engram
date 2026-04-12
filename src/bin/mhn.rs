@@ -1,11 +1,15 @@
-use engram::{Ensemble, HdvClassifier, ImageClassifier, MnistEncoder, calc_accuracy};
-use hypervector::{HyperVector, binary_hdv::BinaryHDV, hdv};
-use mnist::{Image, Mnist, error::MnistError};
+use std::io::Write;
+use std::sync::Arc;
+
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
-use std::io::Write;
-use std::sync::Arc;
+
+use hypervector::{HyperVector, hdv};
+use hypervector::types::binary::BinaryHDV;
+use mnist::{Image, Mnist, error::MnistError};
+
+use engram::{Ensemble, HdvClassifier, ImageClassifier, MnistEncoder, calc_accuracy};
 
 const TOTAL_BITS: usize = 6400;
 hdv!(binary, HDV, TOTAL_BITS);

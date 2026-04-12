@@ -1,12 +1,15 @@
-use engram::MnistEncoder;
-use hopfield::hopfield::Hopfield;
-use hopfield::state::State;
-use hypervector::{binary_hdv::BinaryHDV, hdv};
-use mnist::error::MnistError;
-use mnist::{self, Mnist};
+use std::io::Write;
+
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use std::io::Write;
+
+use hopfield::hopfield::Hopfield;
+use hopfield::state::State;
+use hypervector::types::binary::BinaryHDV;
+use hypervector::hdv;
+use mnist::error::MnistError;
+use mnist::{self, Mnist};
+use engram::MnistEncoder;
 
 const N: usize = 100;
 const TOTAL_BITS: usize = N * usize::BITS as usize;

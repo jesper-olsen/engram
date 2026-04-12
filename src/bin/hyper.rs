@@ -1,17 +1,19 @@
-use engram::{Ensemble, ImageClassifier, MnistEncoder, calc_accuracy};
-use hypervector::{
-    HyperVector,
-    binary_hdv::BinaryHDV,
-    hdv,
-    trainer::{MultiPrototypeModel, Classifier, pa::PaTrainer, pa::PaVariant, perceptron::PerceptronTrainer, PrototypeModel},
-};
-use hypervector::trainer::multi_perceptron::PerceptronMultiTrainer;
-use hypervector::trainer::lvq::LvqTrainer;
-use mnist::{self, Image, Mnist, error::MnistError};
+use std::io::Write;
+
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
-use std::io::Write;
+
+use hypervector::{
+    HyperVector,
+    hdv,
+    trainer::{MultiPrototypeModel, Classifier, pa::PaTrainer, pa::PaVariant, perceptron::PerceptronTrainer, PrototypeModel},
+};
+use hypervector::types::binary::BinaryHDV;
+use hypervector::trainer::multi_perceptron::PerceptronMultiTrainer;
+use hypervector::trainer::lvq::LvqTrainer;
+use mnist::{self, Image, Mnist, error::MnistError};
+use engram::{Ensemble, ImageClassifier, MnistEncoder, calc_accuracy};
 
 pub struct EncodedModel<T: HyperVector, C: Classifier<T>> {
     pub model: C,

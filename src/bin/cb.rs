@@ -1,14 +1,13 @@
-use engram::MnistEncoder;
-use hypervector::{
-    HyperVector, binary_hdv::BinaryHDV, hdv, trainer::{Classifier, kmeans::KMeans},
-    //trainer::PrototypeModel,
-};
-use mnist::error::MnistError;
-use mnist::{self, Mnist};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
+use hypervector::types::binary::BinaryHDV;
+use hypervector::{HyperVector, hdv}; 
+use hypervector::trainer::{Classifier, kmeans::KMeans};
+use mnist::error::MnistError;
+use mnist::{self, Mnist};
+use engram::MnistEncoder;
 
 pub struct KMeansClassifier<T: HyperVector>(pub Vec<KMeans<T>>);
 
