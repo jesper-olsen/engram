@@ -1,4 +1,4 @@
-use hypervector::HyperVector;
+use hypervector::types::traits::HyperVector;
 use mnist::Image;
 
 pub trait ImageClassifier {

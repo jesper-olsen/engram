@@ -7,14 +7,15 @@
 mod classifier;
 mod ensemble;
 
+use rand::Rng;
+use mnist::Image;
 pub use classifier::{HdvClassifier, ImageClassifier, calc_accuracy};
 pub use ensemble::Ensemble;
 
 use hypervector::encoding::ScalarEncoder;
 use hypervector::trainer::kmeans::KMeans;
-use hypervector::{Accumulator, HyperVector, nearest};
-use mnist::Image;
-use rand::Rng;
+use hypervector::types::traits::{Accumulator, HyperVector};
+use hypervector::nearest;
 
 /// A 3x3 view into an image, containing the pixel data and the center coordinate.
 #[derive(Debug, Clone, Copy)]

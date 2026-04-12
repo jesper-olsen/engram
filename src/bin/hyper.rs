@@ -4,12 +4,12 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
+use hypervector::types::traits::HyperVector;
+use hypervector::types::binary::BinaryHDV;
 use hypervector::{
-    HyperVector,
     hdv,
     trainer::{MultiPrototypeModel, Classifier, pa::PaTrainer, pa::PaVariant, perceptron::PerceptronTrainer, PrototypeModel},
 };
-use hypervector::types::binary::BinaryHDV;
 use hypervector::trainer::multi_perceptron::PerceptronMultiTrainer;
 use hypervector::trainer::lvq::LvqTrainer;
 use mnist::{self, Image, Mnist, error::MnistError};

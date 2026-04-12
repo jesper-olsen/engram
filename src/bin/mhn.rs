@@ -5,7 +5,8 @@ use rand::prelude::*;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
-use hypervector::{HyperVector, hdv};
+use hypervector::types::traits::HyperVector;
+use hypervector::hdv;
 use hypervector::types::binary::BinaryHDV;
 use mnist::{Image, Mnist, error::MnistError};
 
