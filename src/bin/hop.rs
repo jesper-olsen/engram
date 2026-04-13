@@ -5,7 +5,7 @@ use rand::rngs::StdRng;
 
 use hopfield::hopfield::Hopfield;
 use hopfield::state::State;
-use hypervector::types::binary::BinaryHDV;
+use hypervector::types::binary::Binary;
 use hypervector::hdv;
 use mnist::error::MnistError;
 use mnist::{self, Mnist};
@@ -41,8 +41,8 @@ fn classify(net: &Hopfield<IDIM>, x: &mut State<IDIM>) -> Vec<u8> {
     (0..10).filter(|i| one_hot & (1 << i) != 0).collect()
 }
 
-fn image_to_state<const N: usize>(img_hdv: &BinaryHDV<N>, digit: u8) -> State<IDIM> {
-    // Note - this mapping assumes BinaryHDV, because it copies the bit representation directly
+fn image_to_state<const N: usize>(img_hdv: &Binary<N>, digit: u8) -> State<IDIM> {
+    // Note - this mapping assumes Binary, because it copies the bit representation directly
     let one_hot: u16 = 1 << digit;
 
     // Lazy iterators over label and image data

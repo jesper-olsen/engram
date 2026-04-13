@@ -5,7 +5,7 @@ use rand::rngs::StdRng;
 use rayon::prelude::*;
 
 use hypervector::types::traits::HyperVector;
-use hypervector::types::binary::BinaryHDV;
+use hypervector::types::binary::Binary;
 use hypervector::{
     hdv,
     trainer::{MultiPrototypeModel, Classifier, pa::PaTrainer, pa::PaVariant, perceptron::PerceptronTrainer, PrototypeModel},

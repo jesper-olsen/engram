@@ -2,7 +2,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
-use hypervector::types::binary::BinaryHDV;
+use hypervector::types::binary::Binary;
 use hypervector::types::traits::HyperVector;
 use hypervector::hdv; 
 use hypervector::trainer::{Classifier, kmeans::KMeans};

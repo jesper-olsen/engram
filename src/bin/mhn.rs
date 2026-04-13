@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use hypervector::types::traits::HyperVector;
 use hypervector::hdv;
-use hypervector::types::binary::BinaryHDV;
+use hypervector::types::binary::Binary;
 use mnist::{Image, Mnist, error::MnistError};
 
 use engram::{Ensemble, HdvClassifier, ImageClassifier, MnistEncoder, calc_accuracy};
